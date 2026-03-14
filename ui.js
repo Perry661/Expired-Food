@@ -179,8 +179,8 @@ function renderHeader(stats) {
             <span class="material-symbols-outlined block">kitchen</span>
           </div>
           <div>
-            <h1 class="text-xl font-bold tracking-tight">FreshTracker</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Keep it green, keep it fresh</p>
+            <h1 class="text-xl font-bold tracking-tight">Freshness Above All!</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Freshness comes first</p>
           </div>
         </a>
         <button class="rounded-full border border-slate-100 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -1328,7 +1328,7 @@ initApp().catch((error) => {
   if (root) {
     root.innerHTML = `
       <div class="boot-error">
-        <strong>FreshTracker failed to start.</strong>\n\n${escapeHtml(error.message || String(error))}
+        <strong>Freshness Above All! failed to start.</strong>\n\n${escapeHtml(error.message || String(error))}
       </div>
     `;
   }

@@ -42,7 +42,7 @@
             <div class="rounded-lg bg-primary p-1.5 text-white">
               <span class="material-symbols-outlined block text-xl">restaurant</span>
             </div>
-            <h2 class="text-lg font-bold tracking-tight transition-colors group-hover:text-primary">FreshTracker</h2>
+            <h2 class="text-lg font-bold tracking-tight transition-colors group-hover:text-primary">Freshness Above All!</h2>
           </button>
           <button
             type="button"
