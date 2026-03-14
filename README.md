@@ -1,6 +1,6 @@
 # Freshness Above All!
 
-Freshness Above All! is a local-first food expiration tracker prototype for managing household food inventory, monitoring expiry dates, and reducing food waste.
+"Freshness Above All!" is a local-first food expiration tracker prototype for managing household food inventory, monitoring expiry dates, and reducing food waste.
 
 The app includes a dashboard, an all-food inventory view, add/edit flows, a trash system with restore support, settings persistence, and food detail sheets. Data is stored locally in JSON files, so it works well as a lightweight prototype without a database.
 
@@ -59,7 +59,7 @@ http://localhost:3000
 
 ## Data Persistence
 
-Freshness Above All! currently uses local JSON files instead of a database.
+"Freshness Above All!" currently uses local JSON files instead of a database.
 
 - Active inventory is stored in `food.json`
 - Trash / recycle-bin data is stored in `trash.json`
