@@ -6,18 +6,29 @@ const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
 const FOOD_PATH = path.join(ROOT, "food.json");
 const SETTINGS_PATH = path.join(ROOT, "setting.json");
+const ADD_SETTINGS_PATH = path.join(ROOT, "addSetting.json");
 const TRASH_PATH = path.join(ROOT, "trash.json");
 const DEFAULT_SETTINGS = {
   trashAutoDeleteDays: 7,
   reminderStrategy: "standard",
-  theme: "light"
+  theme: "light",
+  soundVolume: 100
+};
+const DEFAULT_ADD_SETTINGS = {
+  allFoodSort: "expiry_asc",
+  allFoodFilter: "all",
+  allFoodCategoryFilter: "all",
+  allFoodIconFilter: "all"
 };
 
 const CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".css": "text/css; charset=utf-8"
+  ".css": "text/css; charset=utf-8",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg"
 };
 
 function sendJson(res, statusCode, data) {
@@ -99,6 +110,30 @@ async function writeSettings(settings) {
   return validated;
 }
 
+async function readAddSettings() {
+  try {
+    const raw = await fs.readFile(ADD_SETTINGS_PATH, "utf8");
+    if (!raw.trim()) {
+      return { ...DEFAULT_ADD_SETTINGS };
+    }
+
+    const parsed = JSON.parse(raw);
+    return validateAddSettings(parsed);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { ...DEFAULT_ADD_SETTINGS };
+    }
+
+    throw error;
+  }
+}
+
+async function writeAddSettings(settings) {
+  const validated = validateAddSettings(settings);
+  await fs.writeFile(ADD_SETTINGS_PATH, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+  return validated;
+}
+
 async function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -144,6 +179,7 @@ function validateSettings(settings) {
   const trashAutoDeleteDays = Number(settings.trashAutoDeleteDays);
   const reminderStrategy = String(settings.reminderStrategy || "");
   const theme = String(settings.theme || "");
+  const soundVolume = Number(settings.soundVolume);
 
   if (![7, 14, 30].includes(trashAutoDeleteDays)) {
     throw new Error("Invalid settings payload: trashAutoDeleteDays");
@@ -157,10 +193,47 @@ function validateSettings(settings) {
     throw new Error("Invalid settings payload: theme");
   }
 
+  if (!Number.isFinite(soundVolume) || soundVolume < 0 || soundVolume > 200) {
+    throw new Error("Invalid settings payload: soundVolume");
+  }
+
   return {
     trashAutoDeleteDays,
     reminderStrategy,
-    theme
+    theme,
+    soundVolume: Math.round(soundVolume)
+  };
+}
+
+function validateAddSettings(settings) {
+  if (!settings || typeof settings !== "object") {
+    throw new Error("Invalid add settings payload");
+  }
+
+  const allFoodSort = String(settings.allFoodSort || "");
+  const allFoodFilter = String(settings.allFoodFilter || "");
+  const allFoodCategoryFilter = String(settings.allFoodCategoryFilter || "all").toLowerCase();
+  const allFoodIconFilter = String(settings.allFoodIconFilter || "");
+
+  if (!["expiry_asc", "created_asc", "created_desc"].includes(allFoodSort)) {
+    throw new Error("Invalid add settings payload: allFoodSort");
+  }
+
+  if (!["all", "fresh", "soon", "expired"].includes(allFoodFilter)) {
+    throw new Error("Invalid add settings payload: allFoodFilter");
+  }
+
+  const normalizedIconFilter = allFoodIconFilter === "with-icon" ? "system-icon" : allFoodIconFilter === "default-icon" ? "default-restaurant" : allFoodIconFilter;
+
+  if (!["all", "system-icon", "default-restaurant"].includes(normalizedIconFilter)) {
+    throw new Error("Invalid add settings payload: allFoodIconFilter");
+  }
+
+  return {
+    allFoodSort,
+    allFoodFilter,
+    allFoodCategoryFilter: allFoodCategoryFilter || "all",
+    allFoodIconFilter: normalizedIconFilter
   };
 }
 
@@ -176,6 +249,19 @@ async function handleApi(req, res, pathname) {
 
   if (pathname === "/api/settings" && req.method === "DELETE") {
     return sendJson(res, 200, await writeSettings(DEFAULT_SETTINGS));
+  }
+
+  if (pathname === "/api/add-settings" && req.method === "GET") {
+    return sendJson(res, 200, await readAddSettings());
+  }
+
+  if (pathname === "/api/add-settings" && req.method === "PUT") {
+    const settings = await readBody(req);
+    return sendJson(res, 200, await writeAddSettings(settings));
+  }
+
+  if (pathname === "/api/add-settings" && req.method === "DELETE") {
+    return sendJson(res, 200, await writeAddSettings(DEFAULT_ADD_SETTINGS));
   }
 
   if (pathname === "/api/foods" && req.method === "GET") {

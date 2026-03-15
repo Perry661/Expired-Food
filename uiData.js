@@ -170,6 +170,23 @@ function resetSettingsOnServer() {
   });
 }
 
+function fetchAddSettings() {
+  return request("/api/add-settings");
+}
+
+function updateAddSettingsOnServer(settings) {
+  return request("/api/add-settings", {
+    method: "PUT",
+    body: JSON.stringify(settings)
+  });
+}
+
+function resetAddSettingsOnServer() {
+  return request("/api/add-settings", {
+    method: "DELETE"
+  });
+}
+
 function fetchTrashItems() {
   return request("/api/trash");
 }
@@ -205,6 +222,9 @@ window.FreshTrackerData = {
   fetchSettings,
   updateSettingsOnServer,
   resetSettingsOnServer,
+  fetchAddSettings,
+  updateAddSettingsOnServer,
+  resetAddSettingsOnServer,
   fetchTrashItems,
   createTrashItemOnServer,
   deleteTrashItemOnServer,

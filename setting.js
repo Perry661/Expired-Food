@@ -2,7 +2,8 @@
   const DEFAULT_SETTINGS = {
     trashAutoDeleteDays: 7,
     reminderStrategy: "standard",
-    theme: "light"
+    theme: "light",
+    soundVolume: 100
   };
   const trashRetentionOptions = [7, 14, 30];
   const reminderStrategies = [
@@ -36,21 +37,13 @@
     const strategy = getReminderStrategy(state.settings.reminderStrategy);
 
     return `
-      <header class="sticky top-0 z-10 border-b border-slate-100 bg-white/80 px-4 py-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80">
-        <div class="flex items-center justify-between">
-          <button type="button" data-nav-view="dashboard" class="group flex items-center gap-2">
-            <div class="rounded-lg bg-primary p-1.5 text-white">
-              <span class="material-symbols-outlined block text-xl">restaurant</span>
+      <header class="sticky top-0 z-10 border-b border-primary/10 bg-white/95 px-4 py-4 backdrop-blur-md dark:bg-background-dark/95">
+        <div class="flex items-center justify-between gap-3">
+          <button type="button" data-nav-view="dashboard" class="group flex items-center gap-3 text-left">
+            <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <span class="material-symbols-outlined text-[30px]">settings</span>
             </div>
-            <h2 class="text-lg font-bold tracking-tight transition-colors group-hover:text-primary">Freshness Above All!</h2>
-          </button>
-          <button
-            type="button"
-            id="open-reminder-settings-icon"
-            class="relative rounded-full p-2 text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-          >
-            <span class="material-symbols-outlined">notifications</span>
-            <span class="absolute right-2 top-2 flex h-2 w-2 rounded-full bg-primary"></span>
+            <h2 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">Freshness Above All!</h2>
           </button>
         </div>
       </header>
@@ -113,6 +106,21 @@
               </div>
               <span class="text-sm font-medium text-primary">English</span>
             </div>
+            <div class="border-b border-slate-100 p-4 dark:border-slate-800">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <span class="material-symbols-outlined text-slate-400">volume_up</span>
+                  <span class="text-slate-700 dark:text-slate-200">Sound Volume</span>
+                </div>
+                <span id="sound-volume-value" class="text-sm font-medium text-primary">${escapeHtml(state.settings.soundVolume)}</span>
+              </div>
+              <input id="sound-volume-input" type="range" min="0" max="200" step="1" value="${escapeHtml(state.settings.soundVolume)}" class="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-primary dark:bg-slate-700" />
+              <div class="mt-2 flex justify-between text-[11px] text-slate-400">
+                <span>0</span>
+                <span>100</span>
+                <span>200</span>
+              </div>
+            </div>
             <button type="button" id="theme-toggle" class="flex w-full items-center justify-between p-4 text-left">
               <div class="flex items-center gap-3">
                 <span class="material-symbols-outlined text-slate-400">dark_mode</span>
@@ -173,14 +181,13 @@
 
     return `
       <div class="flex min-h-screen flex-col bg-background-light dark:bg-background-dark">
-        <div class="sticky top-0 z-10 flex items-center border-b border-primary/10 bg-white p-4 dark:bg-background-dark/50">
-          <button type="button" id="back-to-settings" class="flex size-10 shrink-0 items-center text-slate-900 dark:text-slate-100">
-            <span class="material-symbols-outlined">arrow_back</span>
-          </button>
-          <h2 class="ml-2 flex-1 text-lg font-bold leading-tight tracking-tight">Notification Settings</h2>
-          <div class="flex w-10 items-center justify-end">
-            <button type="button" class="flex h-10 w-10 items-center justify-center rounded-lg bg-transparent">
-              <span class="material-symbols-outlined">notifications_active</span>
+        <div class="sticky top-0 z-10 border-b border-primary/10 bg-white/95 px-4 py-4 backdrop-blur-md dark:bg-background-dark/95">
+          <div class="flex items-center justify-between gap-3">
+            <button type="button" id="back-to-settings" class="group flex items-center gap-3 text-left">
+              <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <span class="material-symbols-outlined text-[30px]">notifications_active</span>
+              </div>
+              <h2 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">Notification Settings</h2>
             </button>
           </div>
         </div>
@@ -260,7 +267,10 @@
       reminderStrategy: reminderStrategies.some((strategy) => strategy.id === parsed.reminderStrategy)
         ? parsed.reminderStrategy
         : DEFAULT_SETTINGS.reminderStrategy,
-      theme: parsed.theme === "dark" ? "dark" : DEFAULT_SETTINGS.theme
+      theme: parsed.theme === "dark" ? "dark" : DEFAULT_SETTINGS.theme,
+      soundVolume: Number.isFinite(Number(parsed.soundVolume))
+        ? Math.min(200, Math.max(0, Math.round(Number(parsed.soundVolume))))
+        : DEFAULT_SETTINGS.soundVolume
     };
   }
 

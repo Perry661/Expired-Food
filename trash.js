@@ -30,62 +30,53 @@
 
   function renderTrashPage(state, escapeHtml) {
     const items = state.trashItems || [];
-    const retentionDays = state.settings.trashAutoDeleteDays;
     const hasItems = items.length > 0;
+    const selectedCount = (state.selectedTrashIds || []).length;
     const content = state.isTrashLoading
       ? `
         <div class="rounded-2xl border border-slate-200 bg-white/70 p-6 text-center text-slate-500">
           Loading deleted items...
         </div>
       `
-      : renderTrashList(items, escapeHtml);
+      : renderTrashList(state, items, escapeHtml);
 
     return `
-      <header class="sticky top-0 z-10 flex items-center justify-between border-b border-primary/10 bg-background-light/80 px-4 py-4 backdrop-blur-md dark:bg-background-dark/80">
-        <div class="flex items-center gap-3">
-          <button type="button" data-nav-view="dashboard" class="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-primary/10">
-            <span class="material-symbols-outlined text-slate-900 dark:text-slate-100">arrow_back</span>
+      <header class="sticky top-0 z-10 border-b border-primary/10 bg-white/95 px-4 py-4 backdrop-blur-md dark:bg-background-dark/95">
+        <div class="flex items-center justify-between gap-3">
+          <button type="button" data-nav-view="dashboard" class="group flex items-center gap-3 text-left">
+            <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <span class="material-symbols-outlined text-[30px]">delete</span>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">Trash</h1>
           </button>
-          <h1 class="text-xl font-bold tracking-tight">Trash</h1>
-        </div>
-        <button
-          type="button"
-          id="empty-trash"
-          ${hasItems ? "" : "disabled"}
-          class="flex size-10 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <span class="material-symbols-outlined">delete_sweep</span>
-        </button>
-      </header>
-      <main class="flex-1 overflow-y-auto pb-28">
-        <div class="p-4">
-          <div class="rounded-xl border border-primary/20 bg-primary/10 p-4 dark:bg-primary/5">
-            <div class="flex items-start gap-3">
-              <div class="rounded-lg bg-primary/20 p-2">
-                <span class="material-symbols-outlined text-primary">info</span>
-              </div>
-              <div class="flex-1">
-                <p class="leading-tight font-bold text-slate-900 dark:text-slate-100">Items are permanently deleted after ${retentionDays} days</p>
-                <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Restore items to your main inventory before the countdown ends to keep tracking them.</p>
-              </div>
-            </div>
-            <div class="mt-4 flex justify-end">
-              <button type="button" id="trash-change-settings" class="flex items-center gap-1 text-sm font-bold text-primary hover:underline">
-                Change settings
-                <span class="material-symbols-outlined text-[18px]">chevron_right</span>
-              </button>
-            </div>
+          <div class="flex items-center gap-1">
+            ${state.trashSelectionMode
+              ? `<button type="button" id="cancel-trash-selection" class="rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>`
+              : `<button type="button" id="toggle-trash-selection" ${hasItems ? '' : 'disabled'} class="rounded-full px-3 py-2 text-sm font-semibold text-primary transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800">Select</button>`}
+            <button
+              type="button"
+              id="empty-trash"
+              ${hasItems && !state.trashSelectionMode ? '' : 'disabled'}
+              class="flex h-10 w-10 items-center justify-center rounded-full text-red-500 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span class="material-symbols-outlined">delete_sweep</span>
+            </button>
           </div>
         </div>
-        <div class="px-4 pb-2">
-          <h2 class="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Recently Deleted</h2>
+      </header>
+      <main class="flex-1 overflow-y-auto pb-28">
+        <div class="px-4 pb-2 pt-4">
+          <div class="mb-3 flex items-center justify-between">
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">${state.trashSelectionMode ? `${selectedCount} Selected` : 'Recently Deleted'}</h2>
+            ${state.trashSelectionMode ? `<button ${selectedCount ? '' : 'disabled'} id="delete-selected-trash" class="text-sm font-semibold text-red-500 disabled:cursor-not-allowed disabled:opacity-40">Delete</button>` : ''}
+          </div>
           ${content}
         </div>
       </main>
     `;
   }
 
-  function renderTrashList(items, escapeHtml) {
+  function renderTrashList(state, items, escapeHtml) {
     if (!items.length) {
       return `
         <div class="rounded-2xl border border-dashed border-slate-200 bg-white/50 p-6 text-center dark:border-slate-700 dark:bg-slate-800/50">
@@ -95,31 +86,39 @@
       `;
     }
 
-    return `<div class="space-y-3">${items.map((item) => renderTrashCard(item, escapeHtml)).join("")}</div>`;
+    return `<div class="space-y-3">${items.map((item) => renderTrashCard(state, item, escapeHtml)).join("")}</div>`;
   }
 
-  function renderTrashCard(item, escapeHtml) {
+  function renderTrashCard(state, item, escapeHtml) {
     const faded = item.timeLeft.totalMs <= 24 * 60 * 60 * 1000;
+    const selected = (state.selectedTrashIds || []).includes(item.id);
 
     return `
-      <div class="flex items-center gap-4 rounded-xl border border-primary/5 bg-white p-3 shadow-sm dark:bg-slate-900/50 ${faded ? "opacity-80" : ""}">
-        <button data-trash-detail-id="${item.id}" class="flex size-14 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-primary/15">
+      <div class="flex items-center gap-4 rounded-xl border border-primary/5 bg-white p-3 shadow-sm dark:bg-slate-900/50 ${faded ? "opacity-80" : ""} ${selected ? "ring-2 ring-primary/40" : ""}">
+        ${state.trashSelectionMode ? `
+          <button type="button" data-trash-select-id="${item.id}" class="flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition ${selected ? "border-primary bg-primary text-white" : "border-slate-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-900"}">
+            <span class="material-symbols-outlined text-[16px]">check</span>
+          </button>
+        ` : ""}
+        <button data-trash-detail-id="${item.id}" class="flex size-14 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-primary/15 ${state.trashSelectionMode ? "pointer-events-none" : ""}">
           <span class="material-symbols-outlined text-3xl">${escapeHtml(item.icon)}</span>
         </button>
         <div class="min-w-0 flex-1">
-          <button data-trash-detail-id="${item.id}" class="truncate text-left font-bold text-slate-900 dark:text-slate-100">${escapeHtml(item.name)}</button>
+          <button data-trash-detail-id="${item.id}" class="truncate text-left font-bold text-slate-900 dark:text-slate-100 ${state.trashSelectionMode ? "pointer-events-none" : ""}">${escapeHtml(item.name)}</button>
           <div class="mt-0.5 flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px] text-red-500">schedule</span>
             <p class="text-sm font-medium text-red-500">${escapeHtml(item.timeLeft.label)}</p>
           </div>
         </div>
-        <button
-          type="button"
-          data-restore-id="${item.id}"
-          class="rounded-lg bg-primary px-4 py-2 text-sm font-bold text-slate-900 transition-colors hover:bg-primary/90"
-        >
-          Restore
-        </button>
+        ${state.trashSelectionMode ? "" : `
+          <button
+            type="button"
+            data-restore-id="${item.id}"
+            class="rounded-lg bg-primary px-4 py-2 text-sm font-bold text-slate-900 transition-colors hover:bg-primary/90"
+          >
+            Restore
+          </button>
+        `}
       </div>
     `;
   }
@@ -203,11 +202,15 @@
 
     return `
       <div class="relative flex min-h-screen w-full max-w-md flex-col overflow-x-hidden bg-white shadow-xl dark:bg-background-dark">
-        <div class="flex items-center justify-between border-b border-slate-100 bg-white p-4 pb-2 dark:border-slate-800 dark:bg-background-dark">
-          <button type="button" id="cancel-cleanup-top" class="flex size-12 shrink-0 items-center text-slate-900 dark:text-slate-100">
-            <span class="material-symbols-outlined">arrow_back</span>
-          </button>
-          <h2 class="flex-1 pr-12 text-center text-lg font-bold leading-tight tracking-[-0.015em]">Clean Up Items</h2>
+        <div class="sticky top-0 z-10 border-b border-primary/10 bg-white/95 px-4 py-4 backdrop-blur-md dark:bg-background-dark/95">
+          <div class="flex items-center justify-between gap-3">
+            <button type="button" id="cancel-cleanup-top" class="group flex items-center gap-3 text-left">
+              <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <span class="material-symbols-outlined text-[30px]">delete_sweep</span>
+              </div>
+              <h2 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">Clean Up Items</h2>
+            </button>
+          </div>
         </div>
         <div class="px-4 pb-2 pt-6">
           <div class="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/10 p-4">

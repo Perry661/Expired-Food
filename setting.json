@@ -1,5 +1,6 @@
 {
   "trashAutoDeleteDays": 7,
   "reminderStrategy": "standard",
-  "theme": "light"
+  "theme": "light",
+  "soundVolume": 100
 }

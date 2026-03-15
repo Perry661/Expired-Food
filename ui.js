@@ -2,8 +2,8 @@ if (!window.FreshTrackerData) {
   throw new Error("uiData.js did not load. Open http://localhost:3000 in a browser.");
 }
 
-if (!window.FreshTrackerAdd || !window.FreshTrackerSettings || !window.FreshTrackerTrash) {
-  throw new Error("Required UI modules did not load. Check add.js, setting.js, and trash.js.");
+if (!window.FreshTrackerAdd || !window.FreshTrackerSettings || !window.FreshTrackerTrash || !window.FreshTrackerCalendar || !window.FreshTrackerSound) {
+  throw new Error("Required UI modules did not load. Check add.js, setting.js, trash.js, calendar.js, and sound.js.");
 }
 
 const {
@@ -18,6 +18,9 @@ const {
   fetchSettings: fetchSettingsFromApi,
   updateSettingsOnServer: updateSettingsInApi,
   resetSettingsOnServer: resetSettingsInApi,
+  fetchAddSettings: fetchAddSettingsFromApi,
+  updateAddSettingsOnServer: updateAddSettingsInApi,
+  resetAddSettingsOnServer: resetAddSettingsInApi,
   fetchTrashItems: fetchTrashItemsFromApi,
   createTrashItemOnServer: createTrashItemInApi,
   deleteTrashItemOnServer: deleteTrashItemInApi,
@@ -50,6 +53,22 @@ const {
   createTrashItem
 } = window.FreshTrackerTrash;
 
+const {
+  renderCalendarPage,
+  getCalendarViewModel,
+  getDateKey,
+  getMonthKey,
+  parseMonthKey,
+  addMonths
+} = window.FreshTrackerCalendar;
+
+const {
+  setVolume: setSoundVolume,
+  playAddSound,
+  playDeleteSound,
+  playClickSound
+} = window.FreshTrackerSound;
+
 const state = {
   items: [],
   trashItems: [],
@@ -60,12 +79,24 @@ const state = {
   view: "dashboard",
   selectionMode: false,
   selectedItemIds: [],
+  trashSelectionMode: false,
+  selectedTrashIds: [],
   allFoodSearch: "",
   allFoodFilter: "all",
+  allFoodCategoryFilter: "all",
+  allFoodIconFilter: "all",
   allFoodSort: "expiry_asc",
+  allFoodSortDraft: "expiry_asc",
+  allFoodSelectionMode: false,
   allFoodSelectedIds: [],
   showSortModal: false,
+  showFilterModal: false,
+  allFoodFilterDraft: "all",
+  allFoodCategoryFilterDraft: "all",
+  allFoodIconFilterDraft: "all",
   detailItemId: null,
+  calendarMonth: getMonthKey(new Date()),
+  calendarSelectedDate: getDateKey(new Date()),
   trashDetailItemId: null,
   quickDays: 0,
   entryMethod: "manual",
@@ -84,7 +115,14 @@ async function initApp() {
     console.warn("Failed to load settings from setting.json:", error);
   }
 
+  try {
+    hydrateAllFoodViewSettings(await fetchAddSettingsFromApi());
+  } catch (error) {
+    console.warn("Failed to load settings from addSetting.json:", error);
+  }
+
   applyTheme(state.settings);
+  setSoundVolume(state.settings.soundVolume);
   renderApp();
   bindEvents();
   await Promise.all([refreshItems(), refreshTrashItems()]);
@@ -127,7 +165,7 @@ function renderApp() {
     state.view === "notification-settings" || state.view === "cleanup"
       ? ""
       : renderAddFoodSheet(state, escapeHtml);
-  const detailSheet = state.view === "all-food" ? renderFoodDetailSheet(getDetailItem()) : "";
+  const detailSheet = state.view === "all-food" || state.view === "calendar" ? renderFoodDetailSheet(getDetailItem()) : "";
   const trashDetailSheet = state.view === "trash" ? renderTrashDetailSheet(getTrashDetailItem(), escapeHtml) : "";
 
   root.innerHTML = `
@@ -160,6 +198,10 @@ function renderCurrentView(model) {
     return renderCleanupPage(state, escapeHtml);
   }
 
+  if (state.view === "calendar") {
+    return renderCalendarPage(getCalendarViewModel(state.items, state, getFoodExpiryMeta), escapeHtml);
+  }
+
   if (state.view === "all-food") {
     return renderAllFoodPage(getAllFoodViewModel());
   }
@@ -172,22 +214,24 @@ function renderCurrentView(model) {
 
 function renderHeader(stats) {
   return `
-    <header class="sticky top-0 z-10 bg-background-light/80 px-6 pb-4 pt-8 backdrop-blur-md dark:bg-background-dark/80">
-      <div class="mb-6 flex items-center justify-between">
-        <a class="group flex items-center gap-3" href="#">
-          <div class="rounded-xl bg-primary p-2 text-white">
-            <span class="material-symbols-outlined block">kitchen</span>
+    <header class="sticky top-0 z-10 border-b border-primary/10 bg-white/95 px-4 py-4 backdrop-blur-md dark:bg-background-dark/95">
+      <div class="flex items-center justify-between gap-3">
+        <button type="button" data-nav-view="dashboard" class="group flex items-center gap-3 text-left">
+          <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <span class="material-symbols-outlined text-[30px]">kitchen</span>
           </div>
           <div>
-            <h1 class="text-xl font-bold tracking-tight">Freshness Above All!</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Freshness comes first</p>
+            <h1 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">Freshness Above All!</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Freshness comes first</p>
           </div>
-        </a>
-        <button class="rounded-full border border-slate-100 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-          <span class="material-symbols-outlined text-slate-600 dark:text-slate-300">notifications</span>
         </button>
+        <div class="flex items-center gap-1">
+          <button id="open-reminder-settings-icon" class="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
+            <span class="material-symbols-outlined">notifications</span>
+          </button>
+        </div>
       </div>
-      <div class="grid grid-cols-3 gap-3">
+      <div class="mt-6 grid grid-cols-3 gap-3">
         ${renderStatCard("Expired", stats.expired, "red")}
         ${renderStatCard("Today", stats.today, "orange")}
         ${renderStatCard("3 Days", stats.threeDays, "amber")}
@@ -337,20 +381,25 @@ function renderRecentItemCard(item) {
 
 function renderBottomNav() {
   const settingsActive = state.view === "settings";
-  const dashboardActive = state.view === "all-food";
+  const calendarActive = state.view === "calendar";
+  const allFoodActive = state.view === "all-food";
   const trashActive = state.view === "trash";
 
   return `
     <nav class="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white px-4 pb-6 pt-2 dark:border-slate-800 dark:bg-slate-900">
       <div class="relative mx-auto flex max-w-md items-center justify-between">
-        <a class="flex flex-col items-center gap-1 text-slate-400 transition-colors hover:text-primary" href="#">
-          <span class="material-symbols-outlined">calendar_today</span>
-          <span class="text-[10px] font-medium">Calendar</span>
-        </a>
+        <button
+          type="button"
+          data-nav-view="calendar"
+          class="flex flex-col items-center gap-1 transition-colors hover:text-primary ${calendarActive ? "text-primary" : "text-slate-400"}"
+        >
+          <span class="material-symbols-outlined ${calendarActive ? "fill-1" : ""}">calendar_month</span>
+          <span class="text-[10px] font-medium ${calendarActive ? "font-bold" : ""}">Calendar</span>
+        </button>
         <button
           type="button"
           data-nav-view="all-food"
-          class="flex flex-col items-center gap-1 transition-colors hover:text-primary ${dashboardActive ? "text-primary" : "text-slate-400"}"
+          class="flex flex-col items-center gap-1 transition-colors hover:text-primary ${allFoodActive ? "text-primary" : "text-slate-400"}"
         >
           <span class="material-symbols-outlined">inventory_2</span>
           <span class="text-[10px] font-medium">All Food</span>
@@ -394,14 +443,40 @@ function bindEvents() {
 }
 
 async function handleClick(event) {
+  const clickedButton = event.target.closest("button");
+  if (clickedButton) {
+    playClickSound();
+  }
+
   const navViewButton = event.target.closest("[data-nav-view]");
   if (navViewButton) {
     setView(navViewButton.dataset.navView);
     return;
   }
 
-  if (event.target.closest("#all-food-back-to-dashboard")) {
+  if (event.target.closest("#all-food-back-to-dashboard, #calendar-back-to-dashboard")) {
     setView("dashboard");
+    return;
+  }
+
+  if (event.target.closest("#calendar-previous-month")) {
+    state.calendarMonth = getMonthKey(addMonths(parseMonthKey(state.calendarMonth), -1));
+    state.calendarSelectedDate = null;
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#calendar-next-month")) {
+    state.calendarMonth = getMonthKey(addMonths(parseMonthKey(state.calendarMonth), 1));
+    state.calendarSelectedDate = null;
+    renderApp();
+    return;
+  }
+
+  const calendarDateButton = event.target.closest("[data-calendar-date]");
+  if (calendarDateButton) {
+    state.calendarSelectedDate = calendarDateButton.dataset.calendarDate;
+    renderApp();
     return;
   }
 
@@ -426,22 +501,96 @@ async function handleClick(event) {
     return;
   }
 
+  if (event.target.closest("#toggle-trash-selection")) {
+    state.trashSelectionMode = true;
+    state.selectedTrashIds = [];
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#cancel-trash-selection")) {
+    state.trashSelectionMode = false;
+    state.selectedTrashIds = [];
+    renderApp();
+    return;
+  }
+
+  const trashSelectButton = event.target.closest("[data-trash-select-id]");
+  if (trashSelectButton) {
+    toggleSelectedTrashItem(trashSelectButton.dataset.trashSelectId);
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#delete-selected-trash")) {
+    if (!state.selectedTrashIds.length) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Permanently delete ${state.selectedTrashIds.length} item(s) from trash?`);
+    if (!confirmed) {
+      return;
+    }
+
+    await deleteSelectedTrashItems();
+    return;
+  }
+
+  if (event.target.closest("#toggle-all-food-selection")) {
+    state.allFoodSelectionMode = true;
+    state.allFoodSelectedIds = [];
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#cancel-all-food-selection")) {
+    clearAllFoodSelection();
+    state.allFoodSelectionMode = false;
+    renderApp();
+    return;
+  }
+
   if (event.target.closest("#all-food-open-sort")) {
+    state.allFoodSortDraft = state.allFoodSort;
     state.showSortModal = true;
     renderApp();
     return;
   }
 
-  if (event.target.closest("#all-food-close-sort, #all-food-sort-overlay")) {
+  if (event.target.closest("#all-food-open-filter")) {
+    state.allFoodFilterDraft = state.allFoodFilter;
+    state.allFoodCategoryFilterDraft = state.allFoodCategoryFilter;
+    state.allFoodIconFilterDraft = state.allFoodIconFilter;
+    state.showFilterModal = true;
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#all-food-close-sort") || event.target.id === "all-food-sort-overlay") {
+    state.allFoodSortDraft = state.allFoodSort;
     state.showSortModal = false;
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#all-food-close-filter") || event.target.id === "all-food-filter-overlay") {
+    syncAllFoodViewDrafts();
+    state.showFilterModal = false;
     renderApp();
     return;
   }
 
   const sortOptionButton = event.target.closest("[data-sort-option]");
   if (sortOptionButton) {
-    state.allFoodSort = sortOptionButton.dataset.sortOption;
+    state.allFoodSortDraft = sortOptionButton.dataset.sortOption;
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#all-food-apply-sort")) {
+    state.allFoodSort = state.allFoodSortDraft;
     state.showSortModal = false;
+    persistAllFoodViewSettings();
     renderApp();
     return;
   }
@@ -449,14 +598,45 @@ async function handleClick(event) {
   const filterChip = event.target.closest("[data-filter-chip]");
   if (filterChip) {
     state.allFoodFilter = filterChip.dataset.filterChip;
+    state.allFoodFilterDraft = filterChip.dataset.filterChip;
+    persistAllFoodViewSettings();
     renderApp();
     return;
   }
 
-  if (event.target.closest("#all-food-reset-filters")) {
+  if (event.target.closest("#all-food-clear-filters")) {
     state.allFoodSearch = "";
     state.allFoodFilter = "all";
+    state.allFoodCategoryFilter = "all";
+    state.allFoodIconFilter = "all";
+    syncAllFoodViewDrafts();
     state.allFoodSelectedIds = [];
+    state.showFilterModal = false;
+    persistAllFoodViewSettings();
+    renderApp();
+    return;
+  }
+
+  const categoryFilterButton = event.target.closest("[data-category-filter]");
+  if (categoryFilterButton) {
+    state.allFoodCategoryFilterDraft = categoryFilterButton.dataset.categoryFilter;
+    renderApp();
+    return;
+  }
+
+  const iconFilterButton = event.target.closest("[data-icon-filter]");
+  if (iconFilterButton) {
+    state.allFoodIconFilterDraft = iconFilterButton.dataset.iconFilter;
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#all-food-apply-filter")) {
+    state.allFoodFilter = state.allFoodFilterDraft;
+    state.allFoodCategoryFilter = state.allFoodCategoryFilterDraft;
+    state.allFoodIconFilter = state.allFoodIconFilterDraft;
+    state.showFilterModal = false;
+    persistAllFoodViewSettings();
     renderApp();
     return;
   }
@@ -561,7 +741,7 @@ async function handleClick(event) {
   const trashButton = event.target.closest("[data-trash-days]");
   if (trashButton) {
     state.settings.trashAutoDeleteDays = Number(trashButton.dataset.trashDays);
-    state.settings = normalizeSettings(await updateSettingsInApi(state.settings));
+    await persistSettings()
     await refreshTrashItems();
     return;
   }
@@ -575,14 +755,14 @@ async function handleClick(event) {
 
   if (event.target.closest("#save-reminder-settings")) {
     state.settings.reminderStrategy = state.reminderDraft || state.settings.reminderStrategy;
-    state.settings = normalizeSettings(await updateSettingsInApi(state.settings));
+    await persistSettings()
     setView("settings");
     return;
   }
 
   if (event.target.closest("#theme-toggle")) {
     state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
-    state.settings = normalizeSettings(await updateSettingsInApi(state.settings));
+    await persistSettings()
     applyTheme(state.settings);
     renderApp();
     return;
@@ -594,7 +774,7 @@ async function handleClick(event) {
       return;
     }
 
-    state.settings = normalizeSettings(await resetSettingsInApi());
+    await restoreDefaultSettings()
     state.reminderDraft = state.settings.reminderStrategy;
     applyTheme(state.settings);
     await refreshTrashItems();
@@ -695,7 +875,7 @@ async function handleClick(event) {
   }
 }
 
-function handleChange(event) {
+async function handleChange(event) {
   if (event.target.form?.id === "add-food-form" && event.target.name) {
     state.draft[event.target.name] = event.target.value;
   }
@@ -712,6 +892,13 @@ function handleChange(event) {
   if (event.target.name === "cleanup_reason") {
     state.cleanupDraft.reason = event.target.value;
   }
+
+  if (event.target.id === "sound-volume-input") {
+    state.settings.soundVolume = Math.min(200, Math.max(0, Math.round(Number(event.target.value) || 0)));
+    await persistSettings()
+    setSoundVolume(state.settings.soundVolume);
+    renderApp();
+  }
 }
 
 function handleInput(event) {
@@ -722,6 +909,16 @@ function handleInput(event) {
   if (event.target.id === "all-food-search") {
     state.allFoodSearch = event.target.value;
     renderApp();
+  }
+
+  if (event.target.id === "sound-volume-input") {
+    const nextVolume = Math.min(200, Math.max(0, Math.round(Number(event.target.value) || 0)));
+    state.settings.soundVolume = nextVolume;
+    setSoundVolume(nextVolume);
+    const valueLabel = document.getElementById("sound-volume-value");
+    if (valueLabel) {
+      valueLabel.textContent = String(nextVolume);
+    }
   }
 }
 
@@ -750,6 +947,7 @@ async function handleSubmit(event) {
       await updateFoodItemInApi(state.editingId, payload);
     } else {
       await createFoodItemInApi(payload);
+      playAddSound();
     }
 
     resetModalState();
@@ -796,7 +994,7 @@ function getExistingQuickDays(expiryDate) {
 }
 
 function openCreateModal() {
-  state.view = state.view === "all-food" ? "all-food" : "dashboard";
+  state.view = ["all-food", "calendar"].includes(state.view) ? state.view : "dashboard";
   state.detailItemId = null;
   clearSelectionMode();
   clearAllFoodSelection();
@@ -815,7 +1013,7 @@ function openEditModal(id) {
     return;
   }
 
-  state.view = state.view === "all-food" ? "all-food" : "dashboard";
+  state.view = ["all-food", "calendar"].includes(state.view) ? state.view : "dashboard";
   state.detailItemId = null;
   clearSelectionMode();
   state.modalMode = "edit";
@@ -874,6 +1072,20 @@ function computeQuickExpiryDate(days) {
   return `${year}-${month}-${day}`;
 }
 
+async function persistSettings() {
+  const savedSettings = await updateSettingsInApi(state.settings);
+  state.settings = normalizeSettings({ ...state.settings, ...(savedSettings || {}) });
+  setSoundVolume(state.settings.soundVolume);
+  return state.settings;
+}
+
+async function restoreDefaultSettings() {
+  const savedSettings = await resetSettingsInApi();
+  state.settings = normalizeSettings({ ...getDefaultSettings(), ...(savedSettings || {}) });
+  setSoundVolume(state.settings.soundVolume);
+  return state.settings;
+}
+
 function setView(view) {
   state.view = view;
   if (view !== "dashboard") {
@@ -882,11 +1094,17 @@ function setView(view) {
   }
   if (view !== "all-food") {
     clearAllFoodSelection();
-    state.detailItemId = null;
+    state.allFoodSelectionMode = false;
     state.showSortModal = false;
+    state.showFilterModal = false;
+  }
+  if (view !== "all-food" && view !== "calendar") {
+    state.detailItemId = null;
   }
   if (view !== "trash") {
     state.trashDetailItemId = null;
+    state.trashSelectionMode = false;
+    state.selectedTrashIds = [];
   }
   renderApp();
 }
@@ -920,6 +1138,7 @@ async function confirmCleanup() {
     await deleteFoodItemInApi(item.id);
   }
 
+  playDeleteSound();
   state.cleanupDraft = null;
   state.view = "trash";
   await Promise.all([refreshItems(), refreshTrashItems()]);
@@ -955,6 +1174,26 @@ function toggleSelectedItem(id) {
   state.selectedItemIds = [...state.selectedItemIds, id];
 }
 
+async function deleteSelectedTrashItems() {
+  const ids = [...state.selectedTrashIds];
+  for (const id of ids) {
+    await deleteTrashItemInApi(id);
+  }
+
+  state.selectedTrashIds = [];
+  state.trashSelectionMode = false;
+  await refreshTrashItems();
+}
+
+function toggleSelectedTrashItem(id) {
+  if (state.selectedTrashIds.includes(id)) {
+    state.selectedTrashIds = state.selectedTrashIds.filter((itemId) => itemId !== id);
+    return;
+  }
+
+  state.selectedTrashIds = [...state.selectedTrashIds, id];
+}
+
 function clearSelectionMode() {
   state.selectionMode = false;
   state.selectedItemIds = [];
@@ -963,30 +1202,24 @@ function clearSelectionMode() {
 function renderAllFoodPage(model) {
   return `
     <div class="relative flex h-screen w-full flex-col overflow-hidden">
-      <header class="flex flex-col gap-4 border-b border-primary/10 bg-white px-4 pb-2 pt-6 dark:bg-background-dark">
-        <div class="flex items-center justify-between">
-          <button id="all-food-back-to-dashboard" class="flex items-center gap-2 transition-opacity hover:opacity-80">
-            <span class="material-symbols-outlined text-3xl text-primary">kitchen</span>
-            <h1 class="text-xl font-bold tracking-tight">All Food Inventory</h1>
+      <header class="flex flex-col gap-4 border-b border-primary/10 bg-white px-4 py-4 dark:bg-background-dark">
+        <div class="flex items-center justify-between gap-3">
+          <button id="all-food-back-to-dashboard" class="group flex items-center gap-3 text-left transition-opacity hover:opacity-80">
+            <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <span class="material-symbols-outlined text-[30px]">kitchen</span>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">All Food Inventory</h1>
           </button>
-          <div class="flex items-center gap-1">
-            <button class="rounded-full p-2 transition-colors hover:bg-primary/10">
-              <span class="material-symbols-outlined text-slate-700 dark:text-slate-300">notifications</span>
-            </button>
-            <button class="rounded-full p-2 transition-colors hover:bg-primary/10">
-              <span class="material-symbols-outlined text-slate-700 dark:text-slate-300">more_vert</span>
-            </button>
-          </div>
         </div>
         <div class="flex gap-2">
           <label class="flex flex-1 items-center rounded-xl border border-primary/5 bg-background-light px-3 py-2 transition-all focus-within:border-primary/30 dark:bg-slate-800/50">
             <span class="material-symbols-outlined mr-2 text-xl text-slate-400">search</span>
             <input id="all-food-search" value="${escapeHtml(state.allFoodSearch)}" class="w-full border-none bg-transparent text-sm placeholder:text-slate-400 focus:ring-0" placeholder="Search food items..." type="text"/>
           </label>
-          <button id="all-food-open-sort" class="mr-2 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors hover:bg-primary/20">
+          <button id="all-food-open-sort" class="flex h-12 w-12 items-center justify-center rounded-2xl ${isAllFoodSortActive() ? "bg-primary/10 text-primary shadow-sm" : "bg-transparent text-primary"} transition-colors hover:bg-primary/10">
             <span class="material-symbols-outlined">sort</span>
           </button>
-          <button id="all-food-reset-filters" class="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors hover:bg-primary/20">
+          <button id="all-food-open-filter" class="flex h-12 w-12 items-center justify-center rounded-2xl ${isAllFoodFilterActive() ? "bg-primary/10 text-primary shadow-sm" : "bg-transparent text-primary"} transition-colors hover:bg-primary/10">
             <span class="material-symbols-outlined">tune</span>
           </button>
         </div>
@@ -998,21 +1231,33 @@ function renderAllFoodPage(model) {
         </div>
       </header>
       <main class="custom-scrollbar flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        <div class="mb-4 flex items-center justify-between rounded-xl border border-primary/10 bg-primary/5 p-3">
-          <button id="all-food-select-all" class="flex items-center gap-2">
-            <span class="flex h-5 w-5 items-center justify-center rounded border border-primary/30 text-primary ${model.selectAll ? "bg-primary text-white" : "bg-white"}">
-              <span class="material-symbols-outlined text-[14px]">check</span>
-            </span>
-            <span class="text-sm font-medium text-slate-600 dark:text-slate-300">Select All</span>
-          </button>
-          <button ${model.selectedCount ? "" : "disabled"} id="all-food-clean-up" class="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40">
-            <span class="material-symbols-outlined text-sm">delete_sweep</span>
-            Clean Up
-          </button>
-        </div>
+        ${state.allFoodSelectionMode ? `
+          <div class="mb-4 flex items-center justify-between rounded-xl border border-primary/10 bg-primary/5 p-3">
+            <button id="all-food-select-all" class="flex items-center gap-2">
+              <span class="flex h-5 w-5 items-center justify-center rounded border border-primary/30 text-primary ${model.selectAll ? "bg-primary text-white" : "bg-white"}">
+                <span class="material-symbols-outlined text-[14px]">check</span>
+              </span>
+              <span class="text-sm font-medium text-slate-600 dark:text-slate-300">Select All</span>
+            </button>
+            <div class="flex items-center gap-3">
+              <button id="cancel-all-food-selection" class="text-sm font-semibold text-slate-500 dark:text-slate-400">Cancel</button>
+              <button ${model.selectedCount ? "" : "disabled"} id="all-food-clean-up" class="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40">
+                <span class="material-symbols-outlined text-sm">delete_sweep</span>
+                Clean Up
+              </button>
+            </div>
+          </div>
+        ` : `
+          <div class="mb-4 flex items-center justify-end gap-3">
+            <button id="refresh-foods" class="text-sm font-semibold text-primary">Refresh</button>
+            <span class="h-5 w-px bg-current text-primary/70"></span>
+            <button ${model.items.length ? '' : 'disabled'} id="toggle-all-food-selection" class="text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Select</button>
+          </div>
+        `}
         ${renderAllFoodList(model.items)}
       </main>
       ${state.showSortModal ? renderAllFoodSortModal() : ""}
+      ${state.showFilterModal ? renderAllFoodFilterModal(model) : ""}
     </div>
   `;
 }
@@ -1041,6 +1286,7 @@ function renderAllFoodList(items) {
 
 function renderAllFoodCard(item) {
   const selected = state.allFoodSelectedIds.includes(item.id);
+  const selectionMode = state.allFoodSelectionMode;
   const badge = getAllFoodBadge(item.expiry);
   const datePrefix = item.expiry.tone === "expired" ? "Expired" : "Expires";
   const detailTarget = `data-detail-id="${item.id}"`;
@@ -1048,15 +1294,17 @@ function renderAllFoodCard(item) {
   return `
     <div class="group flex items-center gap-4 rounded-xl border border-primary/5 bg-white p-3 shadow-sm transition-all hover:border-primary/30 dark:bg-slate-800/40">
       <div class="relative">
-        <button ${detailTarget} class="flex h-14 w-14 items-center justify-center rounded-lg border border-primary/10 bg-primary/10 text-primary">
+        <button ${detailTarget} class="flex h-14 w-14 items-center justify-center rounded-lg border border-primary/10 bg-primary/10 text-primary ${selectionMode ? 'pointer-events-none' : ''}">
           <span class="material-symbols-outlined text-3xl">${item.icon}</span>
         </button>
-        <button data-all-food-select-id="${item.id}" class="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded border border-primary/30 bg-white text-primary">
-          ${selected ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ""}
-        </button>
+        ${selectionMode ? `
+          <button data-all-food-select-id="${item.id}" class="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded border border-primary/30 bg-white text-primary">
+            ${selected ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ""}
+          </button>
+        ` : ''}
       </div>
       <div class="min-w-0 flex-1">
-        <button ${detailTarget} class="truncate text-left font-bold text-slate-800 dark:text-white">${escapeHtml(item.name)}</button>
+        <button ${detailTarget} class="truncate text-left font-bold text-slate-800 dark:text-white ${selectionMode ? 'pointer-events-none' : ''}">${escapeHtml(item.name)}</button>
         <div class="mt-0.5 flex items-center gap-1 text-xs ${badge.metaClass}">
           <span class="material-symbols-outlined text-[14px]">${badge.icon}</span>
           <span>${datePrefix}: ${escapeHtml(formatFoodDisplayDate(item.expiryDate))}</span>
@@ -1064,7 +1312,7 @@ function renderAllFoodCard(item) {
       </div>
       <div class="flex flex-col items-end gap-2">
         <span class="rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${badge.badgeClass}">${badge.label}</span>
-        <button ${detailTarget} class="material-symbols-outlined cursor-pointer text-slate-300 transition-colors group-hover:text-primary">chevron_right</button>
+        <button ${detailTarget} class="material-symbols-outlined cursor-pointer text-slate-300 transition-colors group-hover:text-primary ${selectionMode ? 'pointer-events-none' : ''}">chevron_right</button>
       </div>
     </div>
   `;
@@ -1081,9 +1329,12 @@ function renderAllFoodSortModal() {
           </button>
         </div>
         <div class="space-y-2">
-          ${renderSortOption("expiry_asc", "schedule", "Fastest to Slowest Expiration")}
-          ${renderSortOption("created_asc", "calendar_add_on", "Addition Date: Oldest to Newest")}
+          ${renderSortOption("expiry_asc", "calendar_add_on", "Fastest to Slowest Expiration")}
+          ${renderSortOption("created_asc", "schedule", "Addition Date: Oldest to Newest")}
           ${renderSortOption("created_desc", "history", "Addition Date: Newest to Oldest")}
+        </div>
+        <div class="mt-6">
+          <button id="all-food-apply-sort" class="w-full rounded-2xl bg-primary py-4 text-lg font-bold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90">Apply Sort</button>
         </div>
       </div>
     </div>
@@ -1091,7 +1342,7 @@ function renderAllFoodSortModal() {
 }
 
 function renderSortOption(id, icon, label) {
-  const active = state.allFoodSort === id;
+  const active = state.allFoodSortDraft === id;
 
   return `
     <button data-sort-option="${id}" class="flex w-full items-center justify-between rounded-2xl border ${active ? "border-primary/20 bg-primary/10 font-semibold text-primary" : "border-transparent text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"} p-4">
@@ -1182,6 +1433,52 @@ function renderDetailRow(icon, label, value) {
   `;
 }
 
+function renderAllFoodFilterModal(model) {
+  return `
+    <div id="all-food-filter-overlay" class="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm">
+      <div class="w-full max-w-md rounded-t-3xl bg-white p-6 shadow-2xl dark:bg-background-dark">
+        <div class="mb-6 flex items-center justify-between">
+          <h2 class="text-lg font-bold">Filter Food Items</h2>
+          <button id="all-food-close-filter" class="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="space-y-5">
+          <div>
+            <p class="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">Category</p>
+            <div class="flex flex-wrap gap-2">
+              ${renderAllFoodModalChip('all', 'All Categories', state.allFoodCategoryFilterDraft, 'category-filter')}
+              ${model.categories.map((category) => renderAllFoodModalChip(category.value, category.label, state.allFoodCategoryFilterDraft, 'category-filter')).join('')}
+            </div>
+          </div>
+          <div>
+            <p class="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">Icon</p>
+            <div class="flex flex-wrap gap-2">
+              ${renderAllFoodModalChip('all', 'All Icons', state.allFoodIconFilterDraft, 'icon-filter')}
+              ${renderAllFoodModalChip('system-icon', 'System Icons', state.allFoodIconFilterDraft, 'icon-filter')}
+              ${renderAllFoodModalChip('default-restaurant', 'Default Restaurant', state.allFoodIconFilterDraft, 'icon-filter')}
+            </div>
+          </div>
+        </div>
+        <div class="mt-6 flex gap-3">
+          <button id="all-food-clear-filters" class="flex-1 rounded-2xl border border-primary/20 bg-primary/5 py-3 font-semibold text-primary transition hover:bg-primary/10">Reset</button>
+          <button id="all-food-apply-filter" class="flex-1 rounded-2xl bg-primary py-3 font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90">Apply</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAllFoodModalChip(value, label, selectedValue, dataKey) {
+  const active = value === selectedValue;
+  const attribute = dataKey === 'category-filter' ? 'data-category-filter' : 'data-icon-filter';
+  return `
+    <button ${attribute}="${escapeHtml(value)}" class="rounded-full px-4 py-2 text-sm ${active ? 'bg-primary text-white font-semibold' : 'border border-primary/10 bg-background-light text-slate-600 dark:bg-slate-800 dark:text-slate-300'}">
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
 function getAllFoodViewModel() {
   const query = state.allFoodSearch.trim().toLowerCase();
   let items = state.items.map((item) => ({
@@ -1203,16 +1500,71 @@ function getAllFoodViewModel() {
     items = items.filter((item) => item.expiry.tone === "expired");
   }
 
+  if (state.allFoodCategoryFilter && state.allFoodCategoryFilter !== "all") {
+    items = items.filter((item) => String(item.category).toLowerCase() === state.allFoodCategoryFilter);
+  }
+
+  if (state.allFoodIconFilter === "system-icon") {
+    items = items.filter((item) => Boolean(item.icon));
+  } else if (state.allFoodIconFilter === "default-restaurant") {
+    items = items.filter((item) => !item.icon || item.icon === "restaurant");
+  }
+
   items = sortAllFoodItems(items);
 
   const visibleIds = items.map((item) => item.id);
   const selectedVisibleCount = visibleIds.filter((id) => state.allFoodSelectedIds.includes(id)).length;
 
+  const categories = Array.from(new Set(state.items.map((item) => String(item.category || '').trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b))
+    .map((category) => ({ value: category.toLowerCase(), label: category }));
+
   return {
     items,
+    categories,
     selectedCount: state.allFoodSelectedIds.length,
     selectAll: visibleIds.length > 0 && selectedVisibleCount === visibleIds.length
   };
+}
+
+function getAllFoodViewSettingsPayload() {
+  return {
+    allFoodSort: state.allFoodSort,
+    allFoodFilter: state.allFoodFilter,
+    allFoodCategoryFilter: state.allFoodCategoryFilter,
+    allFoodIconFilter: state.allFoodIconFilter
+  };
+}
+
+function hydrateAllFoodViewSettings(settings) {
+  const next = settings && typeof settings === "object" ? settings : {};
+  state.allFoodSort = ["expiry_asc", "created_asc", "created_desc"].includes(next.allFoodSort) ? next.allFoodSort : "expiry_asc";
+  state.allFoodFilter = ["all", "fresh", "soon", "expired"].includes(next.allFoodFilter) ? next.allFoodFilter : "all";
+  state.allFoodCategoryFilter = typeof next.allFoodCategoryFilter === "string" && next.allFoodCategoryFilter ? next.allFoodCategoryFilter : "all";
+  const normalizedIconFilter = next.allFoodIconFilter === "with-icon" ? "system-icon" : next.allFoodIconFilter === "default-icon" ? "default-restaurant" : next.allFoodIconFilter;
+  state.allFoodIconFilter = ["all", "system-icon", "default-restaurant"].includes(normalizedIconFilter) ? normalizedIconFilter : "all";
+  syncAllFoodViewDrafts();
+}
+
+function syncAllFoodViewDrafts() {
+  state.allFoodSortDraft = state.allFoodSort;
+  state.allFoodFilterDraft = state.allFoodFilter;
+  state.allFoodCategoryFilterDraft = state.allFoodCategoryFilter;
+  state.allFoodIconFilterDraft = state.allFoodIconFilter;
+}
+
+function persistAllFoodViewSettings() {
+  updateAddSettingsInApi(getAllFoodViewSettingsPayload()).catch((error) => {
+    console.warn("Failed to save settings to addSetting.json:", error);
+  });
+}
+
+function isAllFoodSortActive() {
+  return state.showSortModal || state.allFoodSort !== "expiry_asc";
+}
+
+function isAllFoodFilterActive() {
+  return state.showFilterModal || state.allFoodFilter !== "all" || state.allFoodCategoryFilter !== "all" || state.allFoodIconFilter !== "all";
 }
 
 function sortAllFoodItems(items) {
