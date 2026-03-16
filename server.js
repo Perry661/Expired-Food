@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs/promises");
 const path = require("path");
 
@@ -158,6 +159,22 @@ function validateFood(item) {
       throw new Error(`Invalid food item: missing ${key}`);
     }
   }
+
+  if (typeof item.barcode !== "undefined" && typeof item.barcode !== "string") {
+    throw new Error("Invalid food item: barcode must be a string");
+  }
+
+  if (typeof item.brand !== "undefined" && typeof item.brand !== "string") {
+    throw new Error("Invalid food item: brand must be a string");
+  }
+
+  if (typeof item.imageUrl !== "undefined" && typeof item.imageUrl !== "string") {
+    throw new Error("Invalid food item: imageUrl must be a string");
+  }
+
+  if (typeof item.source !== "undefined" && typeof item.source !== "string") {
+    throw new Error("Invalid food item: source must be a string");
+  }
 }
 
 function validateTrashItem(item) {
@@ -215,7 +232,7 @@ function validateAddSettings(settings) {
   const allFoodCategoryFilter = String(settings.allFoodCategoryFilter || "all").toLowerCase();
   const allFoodIconFilter = String(settings.allFoodIconFilter || "");
 
-  if (!["expiry_asc", "created_asc", "created_desc"].includes(allFoodSort)) {
+  if (!["expiry_asc", "expiry_desc", "created_asc", "created_desc"].includes(allFoodSort)) {
     throw new Error("Invalid add settings payload: allFoodSort");
   }
 
@@ -235,6 +252,94 @@ function validateAddSettings(settings) {
     allFoodCategoryFilter: allFoodCategoryFilter || "all",
     allFoodIconFilter: normalizedIconFilter
   };
+}
+
+function fetchJson(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    https
+      .get(
+        url,
+        {
+          headers: {
+            "User-Agent": "FreshnessAboveAll/1.0 (Open Food Facts lookup)",
+            Accept: "application/json",
+            ...headers
+          }
+        },
+        (response) => {
+          let raw = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            raw += chunk;
+          });
+          response.on("end", () => {
+            if (response.statusCode < 200 || response.statusCode >= 300) {
+              reject(new Error(`Barcode lookup failed: ${response.statusCode}`));
+              return;
+            }
+
+            try {
+              resolve(JSON.parse(raw));
+            } catch {
+              reject(new Error("Barcode lookup returned invalid JSON"));
+            }
+          });
+        }
+      )
+      .on("error", reject);
+  });
+}
+
+function mapOpenFoodFactsProduct(code, payload) {
+  const product = payload?.product;
+  if (!product) {
+    return { found: false, barcode: code, source: "open_food_facts" };
+  }
+
+  const rawCategory = Array.isArray(product.categories_tags) ? product.categories_tags[0] || "" : "";
+  const category = mapCategory(rawCategory, product.categories || "");
+
+  return {
+    found: true,
+    barcode: String(code),
+    name: String(product.product_name || product.generic_name || product.abbreviated_product_name || "").trim(),
+    brand: String(product.brands || "").split(",")[0]?.trim() || "",
+    category,
+    size: String(product.quantity || "").trim(),
+    imageUrl: String(product.image_front_url || product.image_front_small_url || "").trim(),
+    source: "open_food_facts"
+  };
+}
+
+function mapCategory(primaryTag, fallbackLabel) {
+  const text = `${primaryTag || ""} ${fallbackLabel || ""}`.toLowerCase();
+
+  if (text.includes("drink") || text.includes("beverage") || text.includes("juice") || text.includes("water")) {
+    return "drinks";
+  }
+  if (text.includes("meat") || text.includes("beef") || text.includes("pork") || text.includes("chicken") || text.includes("fish")) {
+    return "meat";
+  }
+  if (text.includes("vegetable") || text.includes("salad") || text.includes("produce")) {
+    return "vegetables";
+  }
+  if (text.includes("egg")) {
+    return "eggs";
+  }
+  if (text.includes("snack") || text.includes("chip") || text.includes("candy") || text.includes("biscuit")) {
+    return "snacks";
+  }
+  if (text.includes("frozen")) {
+    return "frozen";
+  }
+  if (text.includes("yogurt") || text.includes("milk") || text.includes("cheese") || text.includes("dairy") || text.includes("refrigerated")) {
+    return "refrigerated";
+  }
+  if (text.includes("bread") || text.includes("bakery") || text.includes("rice") || text.includes("pasta") || text.includes("grain")) {
+    return "staple foods";
+  }
+
+  return "other";
 }
 
 async function handleApi(req, res, pathname) {
@@ -275,6 +380,16 @@ async function handleApi(req, res, pathname) {
     items.unshift(item);
     await writeFoods(items);
     return sendJson(res, 201, item);
+  }
+
+  if (pathname.startsWith("/api/barcode/") && req.method === "GET") {
+    const code = decodeURIComponent(pathname.split("/").pop() || "").trim();
+    if (!code) {
+      return sendJson(res, 400, { error: "Barcode is required" });
+    }
+
+    const payload = await fetchJson(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`);
+    return sendJson(res, 200, mapOpenFoodFactsProduct(code, payload));
   }
 
   if (pathname.startsWith("/api/foods/")) {

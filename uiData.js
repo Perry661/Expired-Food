@@ -66,13 +66,29 @@ function getExpiryMeta(item, now = new Date()) {
   };
 }
 
-function createFoodItem({ id, name, category, size, expiryDate, icon, createdAt }) {
+function createFoodItem({
+  id,
+  name,
+  category,
+  size,
+  expiryDate,
+  icon,
+  createdAt,
+  barcode = "",
+  brand = "",
+  imageUrl = "",
+  source = "manual"
+}) {
   return {
     id: id || `food-${Date.now()}`,
     name: String(name).trim(),
     category: String(category).trim(),
     size: String(size).trim(),
     icon: icon || "restaurant",
+    barcode: String(barcode || "").trim(),
+    brand: String(brand || "").trim(),
+    imageUrl: String(imageUrl || "").trim(),
+    source: String(source || "manual").trim(),
     expiryDate,
     createdAt: createdAt || new Date().toISOString()
   };
@@ -101,6 +117,7 @@ function getDashboardModel(items, now = new Date()) {
         (item) => item.expiry.daysUntil >= 1 && item.expiry.daysUntil <= 3
       ).length
     },
+    allItems: enriched,
     recentItems: enriched.slice(0, 8)
   };
 }
@@ -151,6 +168,10 @@ function deleteFoodItemOnServer(id) {
   return request(`/api/foods/${encodeURIComponent(id)}`, {
     method: "DELETE"
   });
+}
+
+function lookupBarcode(code) {
+  return request(`/api/barcode/${encodeURIComponent(code)}`);
 }
 
 function fetchSettings() {
@@ -215,6 +236,7 @@ window.FreshTrackerData = {
   formatDisplayDate,
   getExpiryMeta,
   fetchFoodItems,
+  lookupBarcode,
   createFoodItem,
   createFoodItemOnServer,
   updateFoodItemOnServer,

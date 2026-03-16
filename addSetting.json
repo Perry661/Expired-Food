@@ -1,5 +1,5 @@
 {
-  "allFoodSort": "created_desc",
+  "allFoodSort": "expiry_asc",
   "allFoodFilter": "all",
   "allFoodCategoryFilter": "all",
   "allFoodIconFilter": "all"

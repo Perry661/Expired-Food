@@ -87,6 +87,28 @@
         line-height: 1.5;
         white-space: pre-wrap;
       }
+
+      .radio-custom:checked {
+        background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='8' cy='8' r='3'/%3e%3c/svg%3e");
+        background-color: #11d432;
+        border-color: #11d432;
+      }
+
+      .sheet-enter {
+        animation: sheet-enter 180ms ease-out;
+      }
+
+      @keyframes sheet-enter {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
     </style>
   </head>
   <body class="bg-background-light text-slate-900">
@@ -108,6 +130,7 @@
     <script src="./uiData.js"></script>
     <script src="./setting.js"></script>
     <script src="./add.js"></script>
+    <script src="./scan.js"></script>
     <script src="./trash.js"></script>
     <script src="./calendar.js"></script>
     <script src="./sound.js"></script>

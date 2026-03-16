@@ -3,7 +3,7 @@ if (!window.FreshTrackerData) {
 }
 
 if (!window.FreshTrackerAdd || !window.FreshTrackerSettings || !window.FreshTrackerTrash || !window.FreshTrackerCalendar || !window.FreshTrackerSound) {
-  throw new Error("Required UI modules did not load. Check add.js, setting.js, trash.js, calendar.js, and sound.js.");
+  throw new Error("Required UI modules did not load. Check add.js, scan.js, setting.js, trash.js, calendar.js, and sound.js.");
 }
 
 const {
@@ -11,6 +11,7 @@ const {
   formatDisplayDate: formatFoodDisplayDate,
   getExpiryMeta: getFoodExpiryMeta,
   fetchFoodItems: fetchFoodItemsFromApi,
+  lookupBarcode: lookupBarcodeFromApi,
   createFoodItem: buildFoodItem,
   createFoodItemOnServer: createFoodItemInApi,
   updateFoodItemOnServer: updateFoodItemInApi,
@@ -69,6 +70,12 @@ const {
   playClickSound
 } = window.FreshTrackerSound;
 
+const {
+  start: startBarcodeScanner,
+  stop: stopBarcodeScanner,
+  isSupported: isBarcodeScannerSupported
+} = window.FreshTrackerScan || {};
+
 const state = {
   items: [],
   trashItems: [],
@@ -79,6 +86,7 @@ const state = {
   view: "dashboard",
   selectionMode: false,
   selectedItemIds: [],
+  dashboardFilter: "all",
   trashSelectionMode: false,
   selectedTrashIds: [],
   allFoodSearch: "",
@@ -99,9 +107,14 @@ const state = {
   calendarSelectedDate: getDateKey(new Date()),
   trashDetailItemId: null,
   quickDays: 0,
+  expiryPickerMode: "wheel",
   entryMethod: "manual",
   modalMode: "create",
   editingId: null,
+  addFoodScrollTop: 0,
+  scanStatus: "",
+  scanFeedback: null,
+  scanManualCode: "",
   draft: createDraft({}, computeQuickExpiryDate),
   settings: getDefaultSettings(),
   reminderDraft: null,
@@ -159,6 +172,7 @@ async function refreshTrashItems() {
 }
 
 function renderApp() {
+  captureAddFoodScrollPosition();
   const root = document.getElementById("app");
   const model = buildDashboardModel(state.items);
   const notificationModal =
@@ -179,6 +193,8 @@ function renderApp() {
   `;
 
   hydrateAddFormDefaults(state, computeQuickExpiryDate);
+  restoreAddFoodScrollPosition();
+  syncScannerUi();
 }
 
 function renderCurrentView(model) {
@@ -208,7 +224,7 @@ function renderCurrentView(model) {
 
   return `
     ${renderHeader(model.stats)}
-    ${renderRecentItems(model.recentItems)}
+    ${renderRecentItems(getDashboardVisibleItems(model))}
   `;
 }
 
@@ -216,7 +232,7 @@ function renderHeader(stats) {
   return `
     <header class="sticky top-0 z-10 border-b border-primary/10 bg-white/95 px-4 py-4 backdrop-blur-md dark:bg-background-dark/95">
       <div class="flex items-center justify-between gap-3">
-        <button type="button" data-nav-view="dashboard" class="group flex items-center gap-3 text-left">
+        <button type="button" id="dashboard-reset-home" class="group flex items-center gap-3 text-left">
           <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <span class="material-symbols-outlined text-[30px]">kitchen</span>
           </div>
@@ -232,35 +248,49 @@ function renderHeader(stats) {
         </div>
       </div>
       <div class="mt-6 grid grid-cols-3 gap-3">
-        ${renderStatCard("Expired", stats.expired, "red")}
-        ${renderStatCard("Today", stats.today, "orange")}
-        ${renderStatCard("3 Days", stats.threeDays, "amber")}
+        ${renderStatCard("Expired", stats.expired, "red", "expired")}
+        ${renderStatCard("Today", stats.today, "orange", "today")}
+        ${renderStatCard("3 Days", stats.threeDays, "amber", "threeDays")}
       </div>
     </header>
   `;
 }
 
-function renderStatCard(label, value, tone) {
+function renderStatCard(label, value, tone, filterKey) {
+  const active = state.dashboardFilter === filterKey;
   const tones = {
-    red: "bg-red-50 border-red-100 text-red-600 dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400",
+    red: active
+      ? "bg-red-100 border-red-300 text-red-700 ring-2 ring-red-200 dark:bg-red-950/50 dark:border-red-800 dark:text-red-300"
+      : "bg-red-50 border-red-100 text-red-600 dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400",
     orange:
-      "bg-orange-50 border-orange-100 text-orange-600 dark:bg-orange-950/30 dark:border-orange-900/50 dark:text-orange-400",
+      active
+        ? "bg-orange-100 border-orange-300 text-orange-700 ring-2 ring-orange-200 dark:bg-orange-950/50 dark:border-orange-800 dark:text-orange-300"
+        : "bg-orange-50 border-orange-100 text-orange-600 dark:bg-orange-950/30 dark:border-orange-900/50 dark:text-orange-400",
     amber:
-      "bg-amber-50 border-amber-100 text-amber-600 dark:bg-amber-950/30 dark:border-amber-900/50 dark:text-amber-400"
+      active
+        ? "bg-amber-100 border-amber-300 text-amber-700 ring-2 ring-amber-200 dark:bg-amber-950/50 dark:border-amber-800 dark:text-amber-300"
+        : "bg-amber-50 border-amber-100 text-amber-600 dark:bg-amber-950/30 dark:border-amber-900/50 dark:text-amber-400"
   };
 
   return `
-    <div class="${tones[tone]} rounded-2xl border p-4">
+    <button type="button" data-dashboard-filter="${filterKey}" class="${tones[tone]} rounded-2xl border p-4 text-left transition hover:scale-[1.01]">
       <p class="mb-1 text-[10px] font-bold uppercase tracking-wider">${label}</p>
       <div class="flex items-baseline gap-1">
         <span class="text-2xl font-bold">${value}</span>
         <span class="text-xs font-medium">items</span>
       </div>
-    </div>
+    </button>
   `;
 }
 
 function renderRecentItems(items) {
+  const filterTitles = {
+    all: "Recent Items",
+    expired: "Expired Items",
+    today: "Today's Items",
+    threeDays: "Items Due In 3 Days"
+  };
+
   let content = "";
   const selectedCount = state.selectedItemIds.length;
   const hasItems = items.length > 0;
@@ -280,8 +310,8 @@ function renderRecentItems(items) {
   } else if (!items.length) {
     content = `
       <div class="rounded-2xl border border-dashed border-slate-200 bg-white/50 p-6 text-center dark:border-slate-700 dark:bg-slate-800/50">
-        <p class="font-bold text-slate-500 dark:text-slate-400">No food tracked yet</p>
-        <p class="mt-1 text-sm text-slate-400">Tap Add New Item to create your first record.</p>
+        <p class="font-bold text-slate-500 dark:text-slate-400">${state.dashboardFilter === "all" ? "No food tracked yet" : "No matching food items"}</p>
+        <p class="mt-1 text-sm text-slate-400">${state.dashboardFilter === "all" ? "Tap Add New Item to create your first record." : "Tap the dashboard title to restore the default list."}</p>
       </div>
     `;
   } else {
@@ -291,7 +321,7 @@ function renderRecentItems(items) {
   return `
     <main class="flex-1 overflow-y-auto px-6 pb-32">
       <div class="mb-4 mt-4 flex items-center justify-between">
-        <h2 class="text-lg font-bold">${state.selectionMode ? `${selectedCount} Selected` : "Recent Items"}</h2>
+        <h2 class="text-lg font-bold">${state.selectionMode ? `${selectedCount} Selected` : filterTitles[state.dashboardFilter] || "Recent Items"}</h2>
         <div class="flex items-center gap-3">
           ${state.selectionMode
             ? `
@@ -448,6 +478,21 @@ async function handleClick(event) {
     playClickSound();
   }
 
+  if (event.target.closest("#dashboard-reset-home")) {
+    state.dashboardFilter = "all";
+    clearSelectionMode();
+    setView("dashboard");
+    return;
+  }
+
+  const dashboardFilterButton = event.target.closest("[data-dashboard-filter]");
+  if (dashboardFilterButton) {
+    state.dashboardFilter = dashboardFilterButton.dataset.dashboardFilter;
+    clearSelectionMode();
+    renderApp();
+    return;
+  }
+
   const navViewButton = event.target.closest("[data-nav-view]");
   if (navViewButton) {
     setView(navViewButton.dataset.navView);
@@ -587,8 +632,24 @@ async function handleClick(event) {
     return;
   }
 
+  const filterStatusButton = event.target.closest("[data-filter-status]");
+  if (filterStatusButton) {
+    state.allFoodFilterDraft = filterStatusButton.dataset.filterStatus;
+    renderApp();
+    return;
+  }
+
   if (event.target.closest("#all-food-apply-sort")) {
     state.allFoodSort = state.allFoodSortDraft;
+    state.showSortModal = false;
+    persistAllFoodViewSettings();
+    renderApp();
+    return;
+  }
+
+  if (event.target.closest("#all-food-reset-sort")) {
+    state.allFoodSort = "expiry_asc";
+    state.allFoodSortDraft = "expiry_asc";
     state.showSortModal = false;
     persistAllFoodViewSettings();
     renderApp();
@@ -845,7 +906,53 @@ async function handleClick(event) {
   const quickButton = event.target.closest(".quick-expiry-btn");
   if (quickButton) {
     state.quickDays = Number(quickButton.dataset.quickDays);
+    state.expiryPickerMode = "wheel";
     state.draft.expiryDate = computeQuickExpiryDate(state.quickDays);
+    renderApp();
+    openModal();
+    return;
+  }
+
+  if (event.target.closest("[data-open-custom-expiry]")) {
+    state.quickDays = null;
+    state.expiryPickerMode = "native";
+    renderApp();
+    openModal();
+    const input = document.getElementById("expiry-date-input");
+    if (input?.showPicker) {
+      input.showPicker();
+    } else {
+      input?.focus();
+      input?.click();
+    }
+    return;
+  }
+
+  if (event.target.closest("[data-expiry-mode-toggle]")) {
+    state.expiryPickerMode = state.expiryPickerMode === "wheel" ? "native" : "wheel";
+    state.quickDays = null;
+    renderApp();
+    openModal();
+    if (state.expiryPickerMode === "native") {
+      const input = document.getElementById("expiry-date-input");
+      if (input?.showPicker) {
+        input.showPicker();
+      } else {
+        input?.focus();
+      }
+    }
+    return;
+  }
+
+  const expiryAdjustButton = event.target.closest("[data-expiry-adjust]");
+  if (expiryAdjustButton) {
+    state.quickDays = null;
+    state.expiryPickerMode = "wheel";
+    state.draft.expiryDate = adjustExpiryDate(
+      state.draft.expiryDate,
+      expiryAdjustButton.dataset.expiryAdjust,
+      Number(expiryAdjustButton.dataset.expiryOffset || 0)
+    );
     renderApp();
     openModal();
     return;
@@ -854,8 +961,51 @@ async function handleClick(event) {
   const methodButton = event.target.closest(".entry-method-btn");
   if (methodButton) {
     state.entryMethod = methodButton.dataset.entryMethod;
+    if (state.entryMethod !== "scan") {
+      stopBarcodeScanner?.();
+      state.scanStatus = "";
+      state.scanFeedback = null;
+    }
     renderApp();
     openModal();
+    return;
+  }
+
+  if (event.target.closest("#barcode-start-scan")) {
+    startScannerFlow();
+    return;
+  }
+
+  if (event.target.closest("#barcode-stop-scan")) {
+    stopBarcodeScanner?.();
+    state.scanStatus = "Scanner stopped.";
+    state.scanFeedback = null;
+    renderApp();
+    openModal();
+    return;
+  }
+
+  if (event.target.closest("#barcode-use-manual")) {
+    const code = normalizeBarcodeInput(state.scanManualCode);
+    if (!code) {
+      state.scanStatus = "Enter a barcode first.";
+      state.scanFeedback = { type: "error", message: "Enter a barcode first." };
+      renderApp();
+      openModal();
+      return;
+    }
+
+    const validation = validateBarcodeValue(code);
+    if (!validation.valid) {
+      state.scanStatus = validation.message;
+      state.scanManualCode = code;
+      state.scanFeedback = { type: "error", message: validation.message };
+      renderApp();
+      openModal();
+      return;
+    }
+
+    applyBarcodeResult(code, { source: "manual" });
     return;
   }
 
@@ -899,6 +1049,7 @@ async function handleChange(event) {
     setSoundVolume(state.settings.soundVolume);
     renderApp();
   }
+
 }
 
 function handleInput(event) {
@@ -909,6 +1060,11 @@ function handleInput(event) {
   if (event.target.id === "all-food-search") {
     state.allFoodSearch = event.target.value;
     renderApp();
+  }
+
+  if (event.target.id === "barcode-manual-input") {
+    state.scanManualCode = normalizeBarcodeInput(event.target.value);
+    state.scanFeedback = null;
   }
 
   if (event.target.id === "sound-volume-input") {
@@ -940,6 +1096,10 @@ async function handleSubmit(event) {
       size: getDraftSize(),
       expiryDate: state.draft.expiryDate,
       icon: getDraftIcon(),
+      barcode: getDraftBarcode(),
+      brand: getDraftBrand(),
+      imageUrl: getDraftImageUrl(),
+      source: getDraftSource(),
       createdAt: getExistingCreatedAt()
     });
 
@@ -987,10 +1147,67 @@ function getDraftIcon() {
   return String(state.draft.icon || "").trim() || "restaurant";
 }
 
+function getDraftBarcode() {
+  return String(state.draft.barcode || "").trim();
+}
+
+function getDraftBrand() {
+  return String(state.draft.brand || "").trim();
+}
+
+function getDraftImageUrl() {
+  return String(state.draft.imageUrl || "").trim();
+}
+
+function getDraftSource() {
+  return String(state.draft.source || "manual").trim() || "manual";
+}
+
 function getExistingQuickDays(expiryDate) {
   const today = computeQuickExpiryDate(0);
   const delta = Math.round((new Date(expiryDate).getTime() - new Date(today).getTime()) / MS_PER_DAY);
   return [0, 3, 7, 14].includes(delta) ? delta : null;
+}
+
+function adjustExpiryDate(value, part, offset) {
+  const base = parseLocalDateString(value || computeQuickExpiryDate(0));
+
+  if (part === "day") {
+    base.setDate(base.getDate() + offset);
+    return formatLocalDateString(base);
+  }
+
+  if (part === "month") {
+    const nextMonth = base.getMonth() + offset;
+    const targetYear = base.getFullYear() + Math.floor(nextMonth / 12);
+    const normalizedMonth = ((nextMonth % 12) + 12) % 12;
+    const targetDay = Math.min(base.getDate(), getDaysInMonth(targetYear, normalizedMonth));
+    return formatLocalDateString(new Date(targetYear, normalizedMonth, targetDay));
+  }
+
+  if (part === "year") {
+    const targetYear = base.getFullYear() + offset;
+    const targetDay = Math.min(base.getDate(), getDaysInMonth(targetYear, base.getMonth()));
+    return formatLocalDateString(new Date(targetYear, base.getMonth(), targetDay));
+  }
+
+  return formatLocalDateString(base);
+}
+
+function parseLocalDateString(value) {
+  const [year, month, day] = String(value).split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function formatLocalDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDaysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
 }
 
 function openCreateModal() {
@@ -1001,7 +1218,12 @@ function openCreateModal() {
   state.modalMode = "create";
   state.editingId = null;
   state.quickDays = 0;
+  state.expiryPickerMode = "wheel";
   state.entryMethod = "manual";
+  state.addFoodScrollTop = 0;
+  state.scanStatus = "";
+  state.scanFeedback = null;
+  state.scanManualCode = "";
   state.draft = createDraft({}, computeQuickExpiryDate);
   renderApp();
   openModal();
@@ -1019,7 +1241,12 @@ function openEditModal(id) {
   state.modalMode = "edit";
   state.editingId = id;
   state.quickDays = getExistingQuickDays(item.expiryDate);
+  state.expiryPickerMode = "wheel";
   state.entryMethod = "manual";
+  state.addFoodScrollTop = 0;
+  state.scanStatus = "";
+  state.scanFeedback = null;
+  state.scanManualCode = "";
   state.draft = createDraft(item, computeQuickExpiryDate);
   renderApp();
   openModal();
@@ -1030,7 +1257,12 @@ function resetModalState() {
   state.modalMode = "create";
   state.editingId = null;
   state.quickDays = 0;
+  state.expiryPickerMode = "wheel";
   state.entryMethod = "manual";
+  state.addFoodScrollTop = 0;
+  state.scanStatus = "";
+  state.scanFeedback = null;
+  state.scanManualCode = "";
   state.draft = createDraft({}, computeQuickExpiryDate);
 }
 
@@ -1042,6 +1274,8 @@ function openModal() {
   modal.classList.remove("hidden");
   modal.classList.add("flex");
   highlightEntryMethod(state);
+  restoreAddFoodScrollPosition();
+  syncScannerUi();
 }
 
 function closeModal() {
@@ -1052,16 +1286,250 @@ function closeModal() {
 
   modal.classList.add("hidden");
   modal.classList.remove("flex");
+  stopBarcodeScanner?.();
   if (!state.saving) {
     resetModalState();
     renderApp();
   }
 }
 
+function captureAddFoodScrollPosition() {
+  const scrollArea = document.getElementById("add-food-scroll-area");
+  if (!scrollArea) {
+    return;
+  }
+
+  state.addFoodScrollTop = scrollArea.scrollTop;
+}
+
+function restoreAddFoodScrollPosition() {
+  const scrollArea = document.getElementById("add-food-scroll-area");
+  if (!scrollArea) {
+    return;
+  }
+
+  scrollArea.scrollTop = state.addFoodScrollTop || 0;
+}
+
 function openModalIfEditing() {
   if (state.modalMode === "edit" || state.saving) {
     openModal();
   }
+}
+
+function syncScannerUi() {
+  if (state.entryMethod === "scan" && state.view !== "notification-settings" && state.view !== "cleanup") {
+    const fallback = isBarcodeScannerSupported?.()
+      ? "Ready to scan. Use Start Scan or enter a barcode manually."
+      : "Barcode scanning is not supported in this browser. Use manual barcode entry.";
+    if (!state.scanStatus) {
+      state.scanStatus = fallback;
+    }
+    return;
+  }
+
+  stopBarcodeScanner?.();
+}
+
+function startScannerFlow() {
+  state.scanStatus = "Starting camera...";
+  renderApp();
+  openModal();
+
+  startBarcodeScanner?.({
+    videoId: "barcode-video",
+    onStatus(message) {
+      state.scanStatus = message;
+      const statusNode = document.getElementById("barcode-status-text");
+      if (statusNode) {
+        statusNode.textContent = message;
+      }
+    },
+    onDetected(code) {
+      applyBarcodeResult(code, { source: "scan" });
+    }
+  });
+}
+
+function applyBarcodeResult(code, options = {}) {
+  const normalizedCode = normalizeBarcodeInput(code);
+  if (!normalizedCode) {
+    return;
+  }
+
+  const validation = validateBarcodeValue(normalizedCode);
+  if (!validation.valid) {
+    state.scanStatus = validation.message;
+    state.scanManualCode = normalizedCode;
+    state.scanFeedback = { type: "error", message: validation.message };
+    renderApp();
+    openModal();
+    return;
+  }
+
+  stopBarcodeScanner?.();
+  state.scanManualCode = normalizedCode;
+  state.scanFeedback = null;
+  state.scanStatus = options.source === "scan"
+    ? `Barcode scanned: ${normalizedCode}`
+    : `Barcode saved: ${normalizedCode}`;
+  state.draft.barcode = normalizedCode;
+
+  if (state.modalMode === "create") {
+    const existing = state.items.find((item) => String(item.barcode || "").trim() === normalizedCode);
+    if (existing) {
+      const matchedDraft = createDraft(existing, computeQuickExpiryDate);
+      state.draft = {
+        ...state.draft,
+        name: matchedDraft.name,
+        category: matchedDraft.category,
+        categoryOption: matchedDraft.categoryOption,
+        customCategory: matchedDraft.customCategory,
+        size: matchedDraft.size,
+        icon: matchedDraft.icon,
+        barcode: normalizedCode,
+        brand: matchedDraft.brand || "",
+        imageUrl: matchedDraft.imageUrl || "",
+        source: "local_barcode_match"
+      };
+      state.scanStatus = `Matched existing barcode. Food details were auto-filled from ${existing.name}.`;
+      state.scanFeedback = null;
+      renderApp();
+      openModal();
+      return;
+    }
+
+    lookupBarcodeFromOpenFoodFacts(normalizedCode);
+    return;
+  }
+
+  renderApp();
+  openModal();
+}
+
+function normalizeBarcodeInput(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")")
+    .toUpperCase();
+}
+
+function validateBarcodeValue(code) {
+  if (!code) {
+    return {
+      valid: false,
+      message: "Enter a barcode first."
+    };
+  }
+
+  if (/^\d{8}$/.test(code)) {
+    return {
+      valid: true,
+      message: "Valid 8-digit barcode format detected."
+    };
+  }
+
+  if (/^\d{12}$/.test(code)) {
+    return {
+      valid: true,
+      message: "Valid 12-digit barcode format detected."
+    };
+  }
+
+  if (/^\d{13}$/.test(code)) {
+    return {
+      valid: true,
+      message: "Valid 13-digit barcode format detected."
+    };
+  }
+
+  if (/^[A-Z0-9-]{4,32}$/.test(code)) {
+    return {
+      valid: true,
+      message: "Alphanumeric barcode format detected."
+    };
+  }
+
+  return {
+    valid: false,
+    message: "This barcode format looks invalid. Use 8/12/13 digits or a simple alphanumeric code."
+  };
+}
+
+async function lookupBarcodeFromOpenFoodFacts(code) {
+  state.scanStatus = "Looking up product details from Open Food Facts...";
+  state.scanFeedback = null;
+  renderApp();
+  openModal();
+
+  try {
+    const result = await lookupBarcodeFromApi(code);
+    if (!result?.found) {
+      state.scanStatus = "Barcode saved, but no product details were found in Open Food Facts.";
+      state.scanFeedback = {
+        type: "info",
+        message: "No matching product was found in Open Food Facts for this barcode."
+      };
+      renderApp();
+      openModal();
+      return;
+    }
+
+    state.draft = {
+      ...state.draft,
+      name: result.name || state.draft.name,
+      category: result.category || state.draft.category,
+      categoryOption: normalizeDraftCategoryOption(result.category),
+      customCategory: normalizeDraftCategoryOption(result.category) === "other" ? (result.category || "") : "",
+      size: result.size || state.draft.size,
+      icon: inferIconFromCategory(result.category || state.draft.category),
+      barcode: result.barcode || code,
+      brand: result.brand || "",
+      imageUrl: result.imageUrl || "",
+      source: result.source || "open_food_facts"
+    };
+    state.scanStatus = `Matched Open Food Facts product${result.name ? `: ${result.name}` : ""}.`;
+    state.scanFeedback = null;
+  } catch (error) {
+    state.scanStatus = `Barcode saved, but lookup failed: ${error.message}`;
+    state.scanFeedback = {
+      type: "error",
+      message: `Lookup failed: ${error.message}`
+    };
+  }
+
+  renderApp();
+  openModal();
+}
+
+function normalizeDraftCategoryOption(category) {
+  const normalized = String(category || "").trim().toLowerCase();
+  return window.FreshTrackerAdd.categoryOptions.includes(normalized) ? normalized : "other";
+}
+
+function inferIconFromCategory(category) {
+  const normalized = String(category || "").trim().toLowerCase();
+  if (normalized === "drinks") {
+    return "water_drop";
+  }
+  if (normalized === "vegetables") {
+    return "eco";
+  }
+  if (normalized === "eggs") {
+    return "egg";
+  }
+  if (normalized === "staple foods") {
+    return "bakery_dining";
+  }
+  if (normalized === "meat") {
+    return "set_meal";
+  }
+  if (normalized === "snacks") {
+    return "nutrition";
+  }
+  return "restaurant";
 }
 
 function computeQuickExpiryDate(days) {
@@ -1089,6 +1557,7 @@ async function restoreDefaultSettings() {
 function setView(view) {
   state.view = view;
   if (view !== "dashboard") {
+    state.dashboardFilter = "all";
     resetModalState();
     clearSelectionMode();
   }
@@ -1107,6 +1576,24 @@ function setView(view) {
     state.selectedTrashIds = [];
   }
   renderApp();
+}
+
+function getDashboardVisibleItems(model) {
+  const items = model.allItems || model.recentItems || [];
+
+  if (state.dashboardFilter === "expired") {
+    return items.filter((item) => item.expiry.daysUntil < 0);
+  }
+
+  if (state.dashboardFilter === "today") {
+    return items.filter((item) => item.expiry.daysUntil === 0);
+  }
+
+  if (state.dashboardFilter === "threeDays") {
+    return items.filter((item) => item.expiry.daysUntil >= 1 && item.expiry.daysUntil <= 3);
+  }
+
+  return model.recentItems || [];
 }
 
 function openCleanupFlow(itemIds) {
@@ -1202,32 +1689,37 @@ function clearSelectionMode() {
 function renderAllFoodPage(model) {
   return `
     <div class="relative flex h-screen w-full flex-col overflow-hidden">
-      <header class="flex flex-col gap-4 border-b border-primary/10 bg-white px-4 py-4 dark:bg-background-dark">
+      <header class="flex flex-col gap-2 border-b border-primary/10 bg-white/95 px-4 pb-3 pt-4 backdrop-blur-md dark:bg-background-dark/95">
         <div class="flex items-center justify-between gap-3">
           <button id="all-food-back-to-dashboard" class="group flex items-center gap-3 text-left transition-opacity hover:opacity-80">
             <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <span class="material-symbols-outlined text-[30px]">kitchen</span>
             </div>
-            <h1 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">All Food Inventory</h1>
+            <div>
+              <h1 class="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-primary dark:text-slate-100">All Food Inventory</h1>
+              <p class="text-sm text-slate-500 dark:text-slate-400">${model.items.length} item${model.items.length === 1 ? "" : "s"} visible</p>
+            </div>
           </button>
         </div>
-        <div class="flex gap-2">
-          <label class="flex flex-1 items-center rounded-xl border border-primary/5 bg-background-light px-3 py-2 transition-all focus-within:border-primary/30 dark:bg-slate-800/50">
-            <span class="material-symbols-outlined mr-2 text-xl text-slate-400">search</span>
+        <div class="-mb-1 rounded-[28px] border border-slate-200/80 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/70">
+          <div class="flex gap-2">
+            <label class="flex flex-1 items-center rounded-2xl border border-slate-200 bg-background-light px-4 py-3 transition-all focus-within:border-primary/30 focus-within:bg-white dark:border-slate-700 dark:bg-slate-800/60">
+              <span class="material-symbols-outlined mr-2 text-xl text-slate-400">search</span>
             <input id="all-food-search" value="${escapeHtml(state.allFoodSearch)}" class="w-full border-none bg-transparent text-sm placeholder:text-slate-400 focus:ring-0" placeholder="Search food items..." type="text"/>
-          </label>
-          <button id="all-food-open-sort" class="flex h-12 w-12 items-center justify-center rounded-2xl ${isAllFoodSortActive() ? "bg-primary/10 text-primary shadow-sm" : "bg-transparent text-primary"} transition-colors hover:bg-primary/10">
-            <span class="material-symbols-outlined">sort</span>
-          </button>
-          <button id="all-food-open-filter" class="flex h-12 w-12 items-center justify-center rounded-2xl ${isAllFoodFilterActive() ? "bg-primary/10 text-primary shadow-sm" : "bg-transparent text-primary"} transition-colors hover:bg-primary/10">
-            <span class="material-symbols-outlined">tune</span>
-          </button>
-        </div>
-        <div class="no-scrollbar flex gap-2 overflow-x-auto pb-2">
-          ${renderAllFoodFilterChip("all", "All Items")}
-          ${renderAllFoodFilterChip("fresh", "Fresh")}
-          ${renderAllFoodFilterChip("soon", "Expiring Soon")}
-          ${renderAllFoodFilterChip("expired", "Expired")}
+            </label>
+            <button id="all-food-open-sort" class="flex h-14 min-w-14 items-center justify-center rounded-2xl border ${isAllFoodSortActive() ? "border-primary/20 bg-primary/10 text-primary shadow-sm" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"} transition-colors hover:border-primary/20 hover:bg-primary/10 hover:text-primary">
+              <span class="material-symbols-outlined">sort</span>
+            </button>
+            <button id="all-food-open-filter" class="flex h-14 min-w-14 items-center justify-center rounded-2xl border ${isAllFoodFilterActive() ? "border-primary/20 bg-primary/10 text-primary shadow-sm" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"} transition-colors hover:border-primary/20 hover:bg-primary/10 hover:text-primary">
+              <span class="material-symbols-outlined">tune</span>
+            </button>
+          </div>
+          <div class="mt-3 no-scrollbar flex gap-2 overflow-x-auto">
+            ${renderAllFoodFilterChip("all", "All Items")}
+            ${renderAllFoodFilterChip("fresh", "Fresh")}
+            ${renderAllFoodFilterChip("soon", "Expiring Soon")}
+            ${renderAllFoodFilterChip("expired", "Expired")}
+          </div>
         </div>
       </header>
       <main class="custom-scrollbar flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -1265,7 +1757,7 @@ function renderAllFoodPage(model) {
 function renderAllFoodFilterChip(id, label) {
   const active = state.allFoodFilter === id;
   return `
-    <button data-filter-chip="${id}" class="whitespace-nowrap rounded-full px-4 py-1.5 text-xs ${active ? "bg-primary font-semibold text-white" : "border border-primary/10 bg-background-light font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"}">
+    <button data-filter-chip="${id}" class="whitespace-nowrap rounded-full px-4 py-2 text-xs ${active ? "bg-primary font-semibold text-slate-900 shadow-lg shadow-primary/20" : "border border-slate-200 bg-slate-50 font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"}">
       ${label}
     </button>
   `;
@@ -1321,20 +1813,41 @@ function renderAllFoodCard(item) {
 function renderAllFoodSortModal() {
   return `
     <div id="all-food-sort-overlay" class="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm">
-      <div class="w-full max-w-md rounded-t-3xl bg-white p-6 shadow-2xl dark:bg-background-dark">
-        <div class="mb-6 flex items-center justify-between">
-          <h2 class="text-lg font-bold">Sort Food Items</h2>
-          <button id="all-food-close-sort" class="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <span class="material-symbols-outlined">close</span>
-          </button>
+      <div class="sheet-enter w-full max-w-md overflow-hidden rounded-t-[32px] bg-white shadow-[0_-8px_30px_rgba(0,0,0,0.12)] dark:bg-slate-900">
+        <div class="flex h-5 w-full items-center justify-center pt-2">
+          <div class="h-1.5 w-12 rounded-full bg-slate-200 dark:bg-slate-700"></div>
         </div>
-        <div class="space-y-2">
-          ${renderSortOption("expiry_asc", "calendar_add_on", "Fastest to Slowest Expiration")}
-          ${renderSortOption("created_asc", "schedule", "Addition Date: Oldest to Newest")}
-          ${renderSortOption("created_desc", "history", "Addition Date: Newest to Oldest")}
-        </div>
-        <div class="mt-6">
-          <button id="all-food-apply-sort" class="w-full rounded-2xl bg-primary py-4 text-lg font-bold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90">Apply Sort</button>
+        <div class="px-6 pb-8 pt-4">
+          <div class="mb-6 flex items-center justify-between">
+            <h2 class="text-xl font-extrabold text-slate-900 dark:text-slate-100">Sort By</h2>
+            <button id="all-food-close-sort" class="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <span class="material-symbols-outlined text-slate-400">close</span>
+            </button>
+          </div>
+          <div class="mb-6">
+            <div class="mb-3 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-sm">event_busy</span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Expiration Date</h3>
+            </div>
+            <div class="space-y-2">
+              ${renderSortOption("expiry_asc", "calendar_add_on", "Oldest to Newest")}
+              ${renderSortOption("expiry_desc", "event_upcoming", "Newest to Oldest")}
+            </div>
+          </div>
+          <div class="mb-8">
+            <div class="mb-3 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-sm">calendar_add_on</span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Addition Date</h3>
+            </div>
+            <div class="space-y-2">
+              ${renderSortOption("created_asc", "schedule", "Oldest to Newest")}
+              ${renderSortOption("created_desc", "history", "Newest to Oldest")}
+            </div>
+          </div>
+          <div class="flex gap-3">
+            <button id="all-food-reset-sort" class="flex-1 rounded-xl border border-primary/20 bg-primary/5 py-4 font-semibold text-primary transition hover:bg-primary/10">Refresh</button>
+            <button id="all-food-apply-sort" class="flex-1 rounded-xl bg-primary py-4 font-bold text-slate-900 shadow-lg shadow-primary/20 transition hover:bg-primary/90">Apply Sort</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1345,12 +1858,14 @@ function renderSortOption(id, icon, label) {
   const active = state.allFoodSortDraft === id;
 
   return `
-    <button data-sort-option="${id}" class="flex w-full items-center justify-between rounded-2xl border ${active ? "border-primary/20 bg-primary/10 font-semibold text-primary" : "border-transparent text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"} p-4">
+    <button data-sort-option="${id}" class="flex w-full items-center justify-between rounded-xl border p-4 text-left transition-colors ${active ? "border-primary/25 bg-primary/10 text-slate-900 dark:text-slate-100" : "border-slate-100 bg-slate-50/60 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800"}">
       <div class="flex items-center gap-3">
-        <span class="material-symbols-outlined ${active ? "" : "text-slate-400"}">${icon}</span>
-        <span>${label}</span>
+        <span class="material-symbols-outlined text-primary text-[20px]">${icon}</span>
+        <span class="text-sm font-semibold">${label}</span>
       </div>
-      ${active ? '<span class="material-symbols-outlined text-primary">check_circle</span>' : ""}
+      <span class="flex h-5 w-5 items-center justify-center rounded-full border-2 ${active ? "border-primary bg-primary" : "border-slate-300 dark:border-slate-600"}">
+        ${active ? '<span class="h-2.5 w-2.5 rounded-full bg-white"></span>' : ""}
+      </span>
     </button>
   `;
 }
@@ -1436,33 +1951,60 @@ function renderDetailRow(icon, label, value) {
 function renderAllFoodFilterModal(model) {
   return `
     <div id="all-food-filter-overlay" class="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm">
-      <div class="w-full max-w-md rounded-t-3xl bg-white p-6 shadow-2xl dark:bg-background-dark">
-        <div class="mb-6 flex items-center justify-between">
-          <h2 class="text-lg font-bold">Filter Food Items</h2>
-          <button id="all-food-close-filter" class="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <span class="material-symbols-outlined">close</span>
-          </button>
+      <div class="sheet-enter w-full max-w-md overflow-hidden rounded-t-[32px] bg-white shadow-[0_-8px_30px_rgba(0,0,0,0.12)] dark:bg-slate-900">
+        <div class="flex h-5 w-full items-center justify-center pt-2">
+          <div class="h-1.5 w-12 rounded-full bg-slate-200 dark:bg-slate-700"></div>
         </div>
-        <div class="space-y-5">
-          <div>
-            <p class="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">Category</p>
-            <div class="flex flex-wrap gap-2">
-              ${renderAllFoodModalChip('all', 'All Categories', state.allFoodCategoryFilterDraft, 'category-filter')}
-              ${model.categories.map((category) => renderAllFoodModalChip(category.value, category.label, state.allFoodCategoryFilterDraft, 'category-filter')).join('')}
+        <div class="px-6 pb-8 pt-4">
+          <div class="mb-6 flex items-center justify-between">
+            <h2 class="text-xl font-extrabold text-slate-900 dark:text-slate-100">Apply Filters</h2>
+            <button id="all-food-close-filter" class="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <span class="material-symbols-outlined text-slate-400">close</span>
+            </button>
+          </div>
+          <div class="space-y-6">
+            <div>
+              <div class="mb-3 flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary text-sm">instant_mix</span>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</h3>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                ${renderAllFoodSegmentButton("all", "All Items", state.allFoodFilterDraft, "filter-status")}
+                ${renderAllFoodSegmentButton("fresh", "Fresh", state.allFoodFilterDraft, "filter-status")}
+                ${renderAllFoodSegmentButton("soon", "Expiring Soon", state.allFoodFilterDraft, "filter-status")}
+                ${renderAllFoodSegmentButton("expired", "Expired", state.allFoodFilterDraft, "filter-status")}
+              </div>
+            </div>
+            <div>
+              <div class="mb-3 flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary text-sm">category</span>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Category</h3>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                ${renderAllFoodModalChip("all", "All Categories", state.allFoodCategoryFilterDraft, "category-filter")}
+                ${model.categories.map((category) => renderAllFoodModalChip(category.value, category.label, state.allFoodCategoryFilterDraft, "category-filter")).join("")}
+              </div>
+            </div>
+            <div>
+              <div class="mb-3 flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary text-sm">widgets</span>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Icon Type</h3>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                ${renderAllFoodModalChip("all", "All Icons", state.allFoodIconFilterDraft, "icon-filter")}
+                ${renderAllFoodModalChip("system-icon", "Custom Icon", state.allFoodIconFilterDraft, "icon-filter")}
+                ${renderAllFoodModalChip("default-restaurant", "Default Restaurant", state.allFoodIconFilterDraft, "icon-filter")}
+              </div>
+            </div>
+            <div class="rounded-xl border border-primary/10 bg-primary/5 p-4">
+              <p class="text-xs font-bold uppercase tracking-wider text-primary">Preview</p>
+              <p class="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">${getAllFoodFilterSummary(model)}</p>
             </div>
           </div>
-          <div>
-            <p class="mb-3 text-sm font-semibold text-slate-500 dark:text-slate-400">Icon</p>
-            <div class="flex flex-wrap gap-2">
-              ${renderAllFoodModalChip('all', 'All Icons', state.allFoodIconFilterDraft, 'icon-filter')}
-              ${renderAllFoodModalChip('system-icon', 'System Icons', state.allFoodIconFilterDraft, 'icon-filter')}
-              ${renderAllFoodModalChip('default-restaurant', 'Default Restaurant', state.allFoodIconFilterDraft, 'icon-filter')}
-            </div>
+          <div class="mt-6 flex gap-3">
+            <button id="all-food-clear-filters" class="flex-1 rounded-xl border border-primary/20 bg-primary/5 py-3 font-semibold text-primary transition hover:bg-primary/10">Reset</button>
+            <button id="all-food-apply-filter" class="flex-1 rounded-xl bg-primary py-3 font-bold text-slate-900 shadow-lg shadow-primary/20 transition hover:bg-primary/90">Apply</button>
           </div>
-        </div>
-        <div class="mt-6 flex gap-3">
-          <button id="all-food-clear-filters" class="flex-1 rounded-2xl border border-primary/20 bg-primary/5 py-3 font-semibold text-primary transition hover:bg-primary/10">Reset</button>
-          <button id="all-food-apply-filter" class="flex-1 rounded-2xl bg-primary py-3 font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90">Apply</button>
         </div>
       </div>
     </div>
@@ -1471,12 +2013,44 @@ function renderAllFoodFilterModal(model) {
 
 function renderAllFoodModalChip(value, label, selectedValue, dataKey) {
   const active = value === selectedValue;
-  const attribute = dataKey === 'category-filter' ? 'data-category-filter' : 'data-icon-filter';
+  const attribute = dataKey === "category-filter" ? "data-category-filter" : "data-icon-filter";
   return `
-    <button ${attribute}="${escapeHtml(value)}" class="rounded-full px-4 py-2 text-sm ${active ? 'bg-primary text-white font-semibold' : 'border border-primary/10 bg-background-light text-slate-600 dark:bg-slate-800 dark:text-slate-300'}">
+    <button ${attribute}="${escapeHtml(value)}" class="rounded-full px-4 py-2 text-sm ${active ? "bg-primary font-semibold text-slate-900 shadow-lg shadow-primary/20" : "border border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"}">
       ${escapeHtml(label)}
     </button>
   `;
+}
+
+function renderAllFoodSegmentButton(value, label, selectedValue, dataKey) {
+  const active = value === selectedValue;
+  const attribute = dataKey === "filter-status" ? "data-filter-status" : "";
+
+  return `
+    <button ${attribute}="${escapeHtml(value)}" class="rounded-xl border px-4 py-3 text-sm font-semibold transition-colors ${active ? "border-primary/20 bg-primary/10 text-primary" : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}">
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function getAllFoodFilterSummary(model) {
+  const statusMap = {
+    all: "All items",
+    fresh: "Fresh only",
+    soon: "Expiring soon",
+    expired: "Expired only"
+  };
+
+  const iconMap = {
+    all: "all icons",
+    "system-icon": "custom icons",
+    "default-restaurant": "default restaurant icon"
+  };
+
+  const category = state.allFoodCategoryFilterDraft === "all"
+    ? "all categories"
+    : model.categories.find((item) => item.value === state.allFoodCategoryFilterDraft)?.label || state.allFoodCategoryFilterDraft;
+
+  return `${statusMap[state.allFoodFilterDraft] || "All items"}, ${category}, ${iconMap[state.allFoodIconFilterDraft] || "all icons"}.`;
 }
 
 function getAllFoodViewModel() {
@@ -1538,7 +2112,7 @@ function getAllFoodViewSettingsPayload() {
 
 function hydrateAllFoodViewSettings(settings) {
   const next = settings && typeof settings === "object" ? settings : {};
-  state.allFoodSort = ["expiry_asc", "created_asc", "created_desc"].includes(next.allFoodSort) ? next.allFoodSort : "expiry_asc";
+  state.allFoodSort = ["expiry_asc", "expiry_desc", "created_asc", "created_desc"].includes(next.allFoodSort) ? next.allFoodSort : "expiry_asc";
   state.allFoodFilter = ["all", "fresh", "soon", "expired"].includes(next.allFoodFilter) ? next.allFoodFilter : "all";
   state.allFoodCategoryFilter = typeof next.allFoodCategoryFilter === "string" && next.allFoodCategoryFilter ? next.allFoodCategoryFilter : "all";
   const normalizedIconFilter = next.allFoodIconFilter === "with-icon" ? "system-icon" : next.allFoodIconFilter === "default-icon" ? "default-restaurant" : next.allFoodIconFilter;
@@ -1576,6 +2150,17 @@ function sortAllFoodItems(items) {
 
   if (state.allFoodSort === "created_desc") {
     return sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  if (state.allFoodSort === "expiry_desc") {
+    return sorted.sort((a, b) => {
+      const diff = b.expiry.daysUntil - a.expiry.daysUntil;
+      if (diff !== 0) {
+        return diff;
+      }
+
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   }
 
   return sorted.sort((a, b) => {
