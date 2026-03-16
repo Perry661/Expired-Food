@@ -210,15 +210,6 @@
                 </button>
               ` : ""}
 
-              <div class="rounded-xl border border-primary/10 bg-primary/5 p-4">
-                <div class="flex items-start gap-3">
-                  <span class="material-symbols-outlined text-primary">tips_and_updates</span>
-                  <div>
-                    <p class="font-semibold text-slate-800 dark:text-slate-100">Photo Capture preview only</p>
-                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Because this version persists to food.json, please run it through the local server in VS Code instead of opening with file://.</p>
-                  </div>
-                </div>
-              </div>
             </form>
           </div>
           <div class="bg-white p-6 pt-2 dark:bg-slate-900">
