@@ -1,10 +1,11 @@
 (function initFreshTrackerAddPic(global) {
   const PACKAGED_BRANDS = [
     { variants: ["lays", "lays", "lay"], label: "Lay's" },
-    { variants: ["doritos", "dorito"], label: "Doritos" },
+    { variants: ["doritos", "dorito", "dorritos", "dorrito"], label: "Doritos" },
     { variants: ["cheetos", "cheeto"], label: "Cheetos" },
     { variants: ["ruffles", "ruffle"], label: "Ruffles" },
     { variants: ["pringles", "pringle"], label: "Pringles" },
+    { variants: ["oreo"], label: "Oreo" },
     { variants: ["ferrero", "rocher", "ferrerorocher"], label: "Ferrero Rocher" },
     { variants: ["horizon", "organic", "horizonorganic"], label: "Horizon Organic" },
     { variants: ["fairlife"], label: "Fairlife" },
@@ -16,6 +17,8 @@
     { variants: ["kitkat", "kit", "kat"], label: "KitKat" },
     { variants: ["snickers"], label: "Snickers" },
     { variants: ["twix"], label: "Twix" },
+    { variants: ["mms", "mm", "mnm", "mandm", "mandms"], label: "M&M's" },
+    { variants: ["skittles", "skittle", "skitles"], label: "Skittles" },
     { variants: ["mars"], label: "Mars" },
     { variants: ["milka"], label: "Milka" },
     { variants: ["lindt"], label: "Lindt" },
@@ -31,7 +34,14 @@
     { variants: ["redbull", "red", "bull"], label: "Red Bull" },
     { variants: ["drpepper", "pepper"], label: "Dr Pepper" },
     { variants: ["7up"], label: "7UP" },
-    { variants: ["mountaindew", "dew"], label: "Mountain Dew" }
+    { variants: ["mountaindew", "dew"], label: "Mountain Dew" },
+    { variants: ["旺旺", "旺仔", "wangwang", "wangzai"], label: "旺旺" },
+    { variants: ["徐福记", "xufuji", "hsufuchi"], label: "徐福记" },
+    { variants: ["盼盼", "panpan"], label: "盼盼" },
+    { variants: ["卫龙", "weilong"], label: "卫龙" },
+    { variants: ["洽洽", "qiaqia", "恰恰"], label: "洽洽" },
+    { variants: ["劲仔", "jinzai"], label: "劲仔" },
+    { variants: ["无穷", "无穷食品", "wuqiong"], label: "无穷食品" }
   ];
 
   const PACKAGED_DESCRIPTORS = [
@@ -60,7 +70,14 @@
     { pattern: /\bdiet\b/, label: "Diet" },
     { pattern: /\blemon\b/, label: "Lemon" },
     { pattern: /\borange\b/, label: "Orange" },
-    { pattern: /\bgrape\b/, label: "Grape" }
+    { pattern: /\bgrape\b/, label: "Grape" },
+    { pattern: /雪饼/, label: "雪饼" },
+    { pattern: /仙贝/, label: "仙贝" },
+    { pattern: /旺仔牛奶/, label: "旺仔牛奶" },
+    { pattern: /辣条/, label: "辣条" },
+    { pattern: /魔芋爽/, label: "魔芋爽" },
+    { pattern: /卤蛋/, label: "卤蛋" },
+    { pattern: /小鱼干/, label: "小鱼干" }
   ];
 
   const PACKAGED_PRODUCT_TYPES = [
@@ -78,7 +95,23 @@
     { pattern: /\bsparkling water\b|\bsparklingwater\b/, label: "Sparkling Water" },
     { pattern: /\bwater\b/, label: "Water" },
     { pattern: /\bjuice\b/, label: "Juice" },
-    { pattern: /\btea\b/, label: "Tea" }
+    { pattern: /\btea\b/, label: "Tea" },
+    { pattern: /\bcookie[s]?\b|\bbiscuit[s]?\b/, label: "Cookies" },
+    { pattern: /\bcandy\b|糖果/, label: "Candy" },
+    { pattern: /年货/, label: "年货" },
+    { pattern: /\bbread\b|面包/, label: "Bread" },
+    { pattern: /\bcake\b|\bpastr(y|ies)\b|糕点/, label: "Pastry" },
+    { pattern: /雪饼/, label: "雪饼" },
+    { pattern: /仙贝/, label: "仙贝" },
+    { pattern: /旺仔牛奶|牛奶/, label: "Milk" },
+    { pattern: /辣条/, label: "辣条" },
+    { pattern: /魔芋爽|魔芋/, label: "魔芋爽" },
+    { pattern: /瓜子/, label: "瓜子" },
+    { pattern: /坚果/, label: "坚果" },
+    { pattern: /小鱼干/, label: "小鱼干" },
+    { pattern: /肉类零食|肉干|鸡肉/, label: "肉类零食" },
+    { pattern: /卤蛋/, label: "卤蛋" },
+    { pattern: /零食/, label: "Snack" }
   ];
 
   function normalizeOcrText(value) {
@@ -100,6 +133,22 @@
       .replace(/\bseal\b/gi, "lays")
       .replace(/\br ys\b/gi, "lays")
       .replace(/\brys\b/gi, "lays")
+      .replace(/\bdorritos\b/gi, "doritos")
+      .replace(/\bdorrito'?s\b/gi, "doritos")
+      .replace(/\bskitles\b/gi, "skittles")
+      .replace(/\bskittel'?s\b/gi, "skittles")
+      .replace(/\bm\s*&\s*m'?s?\b/gi, "mms")
+      .replace(/\bm\s+and\s+m'?s?\b/gi, "mms")
+      .replace(/\bmnm'?s?\b/gi, "mms")
+      .replace(/\bm\s*m'?s?\b/gi, "mms")
+      .replace(/旺\s*旺/g, "旺旺")
+      .replace(/旺\s*仔\s*牛\s*奶/g, "旺仔牛奶")
+      .replace(/徐\s*福\s*记/g, "徐福记")
+      .replace(/盼\s*盼/g, "盼盼")
+      .replace(/卫\s*龙/g, "卫龙")
+      .replace(/洽\s*洽|恰\s*恰/g, "洽洽")
+      .replace(/劲\s*仔/g, "劲仔")
+      .replace(/无\s*穷(\s*食\s*品)?/g, "无穷食品")
       .replace(/\bdr pepper\b/gi, "drpepper")
       .replace(/\bcoca cola\b/gi, "cocacola")
       .replace(/\bpepsi cola\b/gi, "pepsi")
@@ -117,7 +166,7 @@
       .replace(/\bhazelrut\b/gi, "hazelnut")
       .replace(/\bchacolate\b/gi, "chocolate")
       .replace(/\bchocalate\b/gi, "chocolate")
-      .replace(/[^\w\s'-]/g, " ")
+      .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -170,6 +219,72 @@
         return `Horizon Organic ${matchedDescriptor.label} ${dairyType}`.trim();
       }
       return `Horizon Organic ${dairyType}`.trim();
+    }
+
+    if (matchedBrand.label === "旺旺") {
+      if (text.includes("旺仔牛奶")) {
+        return "旺旺 旺仔牛奶";
+      }
+      if (text.includes("雪饼")) {
+        return "旺旺 雪饼";
+      }
+      if (text.includes("仙贝")) {
+        return "旺旺 仙贝";
+      }
+    }
+
+    if (matchedBrand.label === "徐福记") {
+      if (text.includes("糖果")) {
+        return "徐福记 糖果";
+      }
+      if (text.includes("年货")) {
+        return "徐福记 年货";
+      }
+    }
+
+    if (matchedBrand.label === "盼盼") {
+      if (matchedType?.label === "Bread") {
+        return "盼盼 面包";
+      }
+      if (matchedType?.label === "Pastry") {
+        return "盼盼 糕点";
+      }
+    }
+
+    if (matchedBrand.label === "卫龙") {
+      if (text.includes("魔芋爽")) {
+        return "卫龙 魔芋爽";
+      }
+      if (text.includes("辣条")) {
+        return "卫龙 辣条";
+      }
+    }
+
+    if (matchedBrand.label === "洽洽") {
+      if (text.includes("瓜子")) {
+        return "洽洽 瓜子";
+      }
+      if (text.includes("坚果")) {
+        return "洽洽 坚果";
+      }
+    }
+
+    if (matchedBrand.label === "劲仔") {
+      if (text.includes("小鱼干")) {
+        return "劲仔 小鱼干";
+      }
+      if (matchedType?.label === "肉类零食") {
+        return "劲仔 肉类零食";
+      }
+    }
+
+    if (matchedBrand.label === "无穷食品") {
+      if (text.includes("卤蛋")) {
+        return "无穷食品 卤蛋";
+      }
+      if (matchedType?.label === "肉类零食") {
+        return "无穷食品 鸡肉类零食";
+      }
     }
 
     if (matchedDescriptor && matchedType) {
@@ -226,7 +341,7 @@
 
   function detectPackagedBrand(text) {
     const lower = String(text || "").toLowerCase();
-    const tokens = lower.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+    const tokens = lower.replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
 
     const scored = PACKAGED_BRANDS.map((brand) => {
       const directHit = brand.variants.some((variant) => lower.includes(variant));

@@ -7,7 +7,11 @@ if (!window.FreshTrackerAdd || !window.FreshTrackerSettings || !window.FreshTrac
 }
 
 if (!window.FreshTrackerAddPic) {
-  throw new Error("addPic.js did not load. Check packaged photo recognition helpers.");
+  throw new Error("picSnack.js did not load. Check packaged photo recognition helpers.");
+}
+
+if (!window.FreshTrackerPicVegetable) {
+  throw new Error("picVegetable.js did not load. Check vegetable photo recognition helpers.");
 }
 
 const {
@@ -52,6 +56,12 @@ const {
   extractPackagedFoodKeywordQuery,
   isLowQualityNameCandidate
 } = window.FreshTrackerAddPic;
+
+const {
+  normalizeVegetableOcrText,
+  extractVegetableName,
+  extractVegetableKeywordQuery
+} = window.FreshTrackerPicVegetable;
 
 const {
   reminderStrategies,
@@ -1922,6 +1932,12 @@ function extractNameFromPhotoName(value) {
 
 function extractNameFromText(value) {
   const rawText = String(value || "");
+  const normalizedVegetableText = normalizeVegetableOcrText(rawText);
+  const vegetableName = extractVegetableName(normalizedVegetableText);
+  if (vegetableName) {
+    return vegetableName;
+  }
+
   const normalizedText = normalizeOcrText(rawText);
   const packagedName = extractPackagedFoodName(normalizedText);
   if (packagedName) {
@@ -2011,7 +2027,7 @@ function inferIconFromName(name) {
   if (/(milk|drink|juice|water|tea|coffee)/.test(value)) {
     return "water_drop";
   }
-  if (/(spinach|lettuce|vegetable|salad|broccoli)/.test(value)) {
+  if (/(spinach|lettuce|romaine|bok choy|water spinach|amaranth|carrot|daikon|potato|sweet potato|lotus root|tomato|cucumber|eggplant|aubergine|bell pepper|pumpkin|squash|bitter melon|bitter gourd|garlic|leek|green onion|spring onion|ginger|onion|green beans|string beans|peas|edamame|soybean sprouts|mung bean sprouts|shiitake|enoki|oyster mushroom|king oyster mushroom|broccoli|cauliflower|gai lan|chinese broccoli|vegetable|salad)/.test(value)) {
     return "eco";
   }
   if (/(egg)/.test(value)) {
@@ -2147,6 +2163,12 @@ async function getTesseractWorker() {
 }
 
 function buildProductSearchQuery(nameCandidate, recognizedText) {
+  const normalizedVegetableText = normalizeVegetableOcrText(recognizedText);
+  const vegetableName = extractVegetableName(normalizedVegetableText);
+  if (vegetableName) {
+    return "";
+  }
+
   const normalizedText = normalizeOcrText(recognizedText);
   const packagedName = extractPackagedFoodName(normalizedText);
   if (packagedName) {
@@ -2156,6 +2178,11 @@ function buildProductSearchQuery(nameCandidate, recognizedText) {
   const packagedKeywords = extractPackagedFoodKeywordQuery(normalizedText);
   if (packagedKeywords) {
     return packagedKeywords;
+  }
+
+  const vegetableKeywords = extractVegetableKeywordQuery(normalizedVegetableText);
+  if (vegetableKeywords) {
+    return "";
   }
 
   const preferred = String(nameCandidate || "").trim();
@@ -2211,13 +2238,28 @@ function tokenizeProductName(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/lay'?s/g, "lays")
+    .replace(/dorrito'?s/g, "doritos")
     .replace(/dorito'?s/g, "doritos")
     .replace(/cheeto'?s/g, "cheetos")
     .replace(/ruffle'?s/g, "ruffles")
     .replace(/pringle'?s/g, "pringles")
     .replace(/reese'?s/g, "reeses")
+    .replace(/skittel'?s/g, "skittles")
+    .replace(/skitles/g, "skittles")
+    .replace(/m\s*&\s*m'?s?/g, "mms")
+    .replace(/m\s+and\s+m'?s?/g, "mms")
+    .replace(/mnm'?s?/g, "mms")
+    .replace(/m\s*m'?s?/g, "mms")
     .replace(/m&m'?s/g, "mms")
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/旺\s*旺/g, "旺旺")
+    .replace(/旺\s*仔\s*牛\s*奶/g, "旺仔牛奶")
+    .replace(/徐\s*福\s*记/g, "徐福记")
+    .replace(/盼\s*盼/g, "盼盼")
+    .replace(/卫\s*龙/g, "卫龙")
+    .replace(/洽\s*洽|恰\s*恰/g, "洽洽")
+    .replace(/劲\s*仔/g, "劲仔")
+    .replace(/无\s*穷(\s*食\s*品)?/g, "无穷食品")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter((token) => token && token.length > 1 && !["with", "made", "real", "the", "and"].includes(token));
 }
