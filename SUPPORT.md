@@ -290,6 +290,9 @@ This usually means one of the scripts did not load correctly. Try the following:
 如果你曾拒绝过摄像头权限，需要去浏览器设置中重新允许。  
 If you previously denied camera access, you need to re-enable it in your browser settings.
 
+现在应用内的扫码页、拍照页和 Settings 页面也会提供相同的恢复提示。  
+The scan view, photo flow, and Settings page now surface the same recovery guidance inside the app.
+
 在 macOS 上，也建议检查：  
 On macOS, also check:
 

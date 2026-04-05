@@ -340,6 +340,9 @@
             </div>
 
             <div class="mt-6">
+              <div class="mb-4 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white/75 backdrop-blur-sm">
+                If the camera does not open, allow camera access in your browser's site settings, then try again here.
+              </div>
               <button id="photo-review-trigger" ${(count && !state.photoRecognitionLoading) ? "" : "disabled"} class="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 font-bold text-black shadow-lg shadow-primary/20 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
                 <span>${state.photoRecognitionLoading ? "Analyzing Photos..." : "Review AI Scan"}</span>
                 <span class="material-symbols-outlined">arrow_forward</span>
@@ -521,6 +524,14 @@
             </div>
           </div>
         </div>
+        ${state.scanPermissionBlocked
+          ? `
+            <div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+              <p class="font-bold">Camera access is blocked.</p>
+              <p class="mt-1">Open your browser's site settings for this page and allow Camera, or keep using manual barcode entry below.</p>
+            </div>
+          `
+          : ""}
         <div class="mt-4 flex gap-3">
           <button type="button" id="barcode-start-scan" class="flex-1 rounded-xl bg-primary py-3 text-sm font-bold text-slate-900 shadow-lg shadow-primary/20 transition hover:bg-primary/90">
             Start Scan

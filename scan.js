@@ -45,6 +45,7 @@
       onStatusHandler?.("Scanning... point the barcode inside the frame.");
       scanFrame();
     } catch (error) {
+      options.onError?.(error);
       onStatusHandler?.(`Unable to start camera scan: ${error.message}`);
       stop();
     }

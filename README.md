@@ -100,6 +100,8 @@ npm run dev
 
 - Do not open the app with `file://.../index.html` if you want camera access
 - Your browser must support `getUserMedia` and `BarcodeDetector`
+- Barcode scan is currently best supported in Chrome / Edge
+- Safari can still use photo capture and manual barcode entry, but web barcode scanning may not start because Safari does not reliably support `BarcodeDetector`
 - Your computer must be online if you want scanned barcodes to query Open Food Facts
 
 ### macOS Permission Check
@@ -116,6 +118,7 @@ If the camera does not open, check:
 ### What To Expect
 
 - If camera permission is granted, the scan panel will start the camera preview
+- In Safari, camera permission alone may not be enough for barcode scan because the current web implementation also depends on `BarcodeDetector`
 - If a barcode is detected, the app stores the barcode and tries to auto-fill food info
 - If the barcode already exists in your local data, the app reuses the existing item details
 - If the barcode is new, the app queries Open Food Facts
@@ -159,7 +162,7 @@ The deployed app stores data in Cloudflare D1.
 - No real image upload pipeline yet
 - Calendar / notification behavior is still mostly UI-level
 - Sound effects are planned but not implemented yet
-- Barcode scanning depends on browser support for `BarcodeDetector`
+- Barcode scanning depends on browser support for `BarcodeDetector`, so Safari may require manual entry even when camera access works
 - Open Food Facts lookup depends on network availability and third-party data coverage
 
 ## Planned Improvements

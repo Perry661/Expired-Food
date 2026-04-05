@@ -145,6 +145,15 @@
               <span class="text-slate-700 dark:text-slate-200">Help Center</span>
               <span class="material-symbols-outlined text-sm text-slate-400">open_in_new</span>
             </a>
+            <div class="border-b border-slate-100 p-4 dark:border-slate-800">
+              <div class="flex items-start gap-3">
+                <span class="material-symbols-outlined mt-0.5 text-slate-400">photo_camera</span>
+                <div>
+                  <p class="font-medium text-slate-700 dark:text-slate-200">Camera Access Help</p>
+                  <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">If scan or photo capture stops opening, re-allow Camera for this site in your browser's site settings. On macOS, also check System Settings → Privacy & Security → Camera.</p>
+                </div>
+              </div>
+            </div>
             <div class="flex items-center justify-between p-4">
               <span class="text-slate-700 dark:text-slate-200">App Version</span>
               <span class="font-mono text-sm text-slate-400">v${escapeHtml(appVersion)}</span>

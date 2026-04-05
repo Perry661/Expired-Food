@@ -204,6 +204,7 @@ const state = {
   photoRecognitionStatus: "",
   photoFiles: [],
   photoReviewItems: [],
+  scanPermissionBlocked: false,
   modalMode: "create",
   editingId: null,
   addFoodScrollTop: 0,
@@ -1154,10 +1155,7 @@ async function handleClick(event) {
   }
 
   if (event.target.closest("#open-barcode-option")) {
-    state.entryMethod = "scan";
-    state.photoToolSheetOpen = false;
-    renderApp();
-    openModal();
+    openBarcodeOption();
     return;
   }
 
@@ -1168,13 +1166,7 @@ async function handleClick(event) {
     event.target.closest("#photo-add-more-top") ||
     event.target.closest("#photo-open-library")
   ) {
-    state.entryMethod = "manual";
-    state.photoToolSheetOpen = false;
-    state.photoCaptureOpen = true;
-    state.photoReviewOpen = false;
-    renderApp();
-    openModal();
-    document.getElementById("photo-file-input")?.click();
+    openPhotoCaptureFlow();
     return;
   }
 
@@ -1506,6 +1498,7 @@ function openCreateModal() {
   state.photoRecognitionStatus = "";
   state.photoFiles = [];
   state.photoReviewItems = [];
+  state.scanPermissionBlocked = false;
   state.addFoodScrollTop = 0;
   state.scanStatus = "";
   state.scanFeedback = null;
@@ -1536,6 +1529,7 @@ function openEditModal(id) {
   state.photoRecognitionStatus = "";
   state.photoFiles = [];
   state.photoReviewItems = [];
+  state.scanPermissionBlocked = false;
   state.addFoodScrollTop = 0;
   state.scanStatus = "";
   state.scanFeedback = null;
@@ -1560,6 +1554,7 @@ function resetModalState() {
   state.photoRecognitionStatus = "";
   state.photoFiles = [];
   state.photoReviewItems = [];
+  state.scanPermissionBlocked = false;
   state.addFoodScrollTop = 0;
   state.scanStatus = "";
   state.scanFeedback = null;
@@ -1633,6 +1628,7 @@ function syncScannerUi() {
 }
 
 function startScannerFlow() {
+  state.scanPermissionBlocked = false;
   state.scanStatus = "Starting camera...";
   renderApp();
   openModal();
@@ -1646,10 +1642,53 @@ function startScannerFlow() {
         statusNode.textContent = message;
       }
     },
+    onError(error) {
+      if (!isCameraPermissionError(error)) {
+        return;
+      }
+      state.scanPermissionBlocked = true;
+      state.scanStatus = "Camera access is blocked. You can allow it in your browser or use manual barcode entry.";
+      state.scanFeedback = {
+        type: "warning",
+        message: "Camera access is blocked. Open your browser's site settings and allow Camera for this site, then try Start Scan again."
+      };
+      renderApp();
+      openModal();
+    },
     onDetected(code) {
       applyBarcodeResult(code, { source: "scan" });
     }
   });
+}
+
+function openBarcodeOption() {
+  state.entryMethod = "scan";
+  state.photoToolSheetOpen = false;
+  renderApp();
+  openModal();
+  startScannerFlow();
+}
+
+function openPhotoCaptureFlow() {
+  state.entryMethod = "manual";
+  state.photoToolSheetOpen = false;
+  state.photoCaptureOpen = true;
+  state.photoReviewOpen = false;
+  renderApp();
+  openModal();
+  document.getElementById("photo-file-input")?.click();
+}
+
+function isCameraPermissionError(error) {
+  const name = String(error?.name || "");
+  const message = String(error?.message || "");
+  return (
+    name === "NotAllowedError" ||
+    name === "PermissionDeniedError" ||
+    /permission/i.test(message) ||
+    /denied/i.test(message) ||
+    /not allowed/i.test(message)
+  );
 }
 
 function applyBarcodeResult(code, options = {}) {
